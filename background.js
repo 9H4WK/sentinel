@@ -1,0 +1,318 @@
+// background.js
+// MV3 service worker
+// Owns persistence (chrome.storage)
+// Safely notifies content scripts when available
+
+// Auto-cleanup config
+const CLOSED_TAB_RETENTION_MS = 0.2 * 60 * 1000; // 5 minutes
+
+/* --------------------------------
+ * Allow list (hostnames only)
+ * -------------------------------- */
+const DEFAULT_ALLOW_LIST = [
+  'localhost',
+  '127.0.0.1',
+]; 
+
+/* --------------------------------
+ * Badge helpers
+ * -------------------------------- */
+function updateBadge(count) {
+  const text = count > 0 ? String(count) : '';
+  chrome.action.setBadgeText({ text });
+  chrome.action.setBadgeBackgroundColor({ color: '#d93025' }); // red
+}
+
+function refreshBadgeFromStorage() {
+  chrome.storage.local.get({ faultlineEvents: [] }, res => {
+    updateBadge(res.faultlineEvents.length);
+  });
+}
+
+async function updateBadgeForActiveTab() {
+  try {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true
+    });
+
+    if (!tab?.id) {
+      chrome.action.setBadgeText({ text: '' });
+      return;
+    }
+
+    chrome.storage.local.get({ faultlineEvents: [] }, res => {
+      const count = res.faultlineEvents.filter(
+        e => e.tabId === tab.id
+      ).length;
+
+      chrome.action.setBadgeText({
+        text: count > 0 ? String(count) : '',
+        tabId: tab.id
+      });
+
+      chrome.action.setBadgeBackgroundColor({
+        color: '#d93025',
+        tabId: tab.id
+      });
+    });
+  } catch (_) {
+    // ignore
+  }
+}
+
+
+const closedTabs = new Map(); // tabId -> closedAt (timestamp)
+
+/* --------------------------------
+ * Utilities
+ * -------------------------------- */
+async function safeSend(tabId, message) {
+  try {
+    await chrome.tabs.sendMessage(tabId, message);
+  } catch (e) {
+    // Expected if content script is not injected
+    // DO NOT throw
+  }
+}
+
+function storeEvent(event, tabId) {
+  const withTab = {
+    ...event,
+    tabId
+  };
+
+  chrome.storage.local.get({ faultlineEvents: [] }, res => {
+    const updated = res.faultlineEvents
+      .concat(withTab)
+      .slice(-200);
+
+    chrome.storage.local.set({ faultlineEvents: updated }, () => {
+      updateBadgeForActiveTab();
+      if (tabId !== undefined) {
+        safeSend(tabId, { __FAULTLINE_EVENT__: true });
+      }
+    });
+  });
+}
+
+function cleanupClosedTabEvents() {
+  const now = Date.now();
+
+  chrome.storage.local.get({ faultlineEvents: [] }, res => {
+    const remaining = res.faultlineEvents.filter(event => {
+      if (event.tabId == null) return true;
+
+      const closedAt = closedTabs.get(event.tabId);
+      if (!closedAt) return true; // tab still open
+
+      // tab is closed — check age
+      return (now - event.time) < CLOSED_TAB_RETENTION_MS;
+    });
+
+    if (remaining.length !== res.faultlineEvents.length) {
+      chrome.storage.local.set({ faultlineEvents: remaining }, () => {
+        updateBadgeForActiveTab();
+      });
+    }
+  });
+
+  // prune old closed-tab markers
+  for (const [tabId, closedAt] of closedTabs.entries()) {
+    if ((now - closedAt) > CLOSED_TAB_RETENTION_MS) {
+      closedTabs.delete(tabId);
+    }
+  }
+}
+
+function getClosedTabInfo() {
+  const now = Date.now();
+  const info = {};
+  for (const [tabId, closedAt] of closedTabs.entries()) {
+    const remaining = Math.max(
+      0,
+      CLOSED_TAB_RETENTION_MS - (now - closedAt)
+    );
+    info[tabId] = remaining;
+  }
+  return info;
+}
+
+async function getAllowList() {
+  const res = await chrome.storage.local.get({
+    allowList: DEFAULT_ALLOW_LIST
+  });
+  return res.allowList;
+}
+
+async function isHostAllowed(urlOrHost) {
+  try {
+    const host = urlOrHost.includes('://')
+      ? new URL(urlOrHost).hostname
+      : urlOrHost;
+
+    const allowList = await getAllowList();
+
+    return allowList.some(pattern => {
+      if (pattern.startsWith('*.')) {
+        const base = pattern.slice(2);
+        return host === base || host.endsWith('.' + base);
+      }
+      return host === pattern;
+    });
+  } catch {
+    return false;
+  }
+}
+
+/* --------------------------------
+ * Lifecycle
+ * -------------------------------- */
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('[Faultline] installed');
+  updateBadgeForActiveTab();
+});
+
+chrome.tabs.onActivated.addListener(() => {
+  updateBadgeForActiveTab();
+  cleanupClosedTabEvents();
+});
+
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.status === 'complete') {
+    updateBadgeForActiveTab();
+    cleanupClosedTabEvents();
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  closedTabs.set(tabId, Date.now());
+  cleanupClosedTabEvents();
+});
+
+
+/* --------------------------------
+ * Network monitoring (HTTP errors)
+ * -------------------------------- */
+chrome.webRequest.onCompleted.addListener(
+  (details) => {
+    const { statusCode, url, method, tabId } = details;
+
+    if (tabId === -1) return;
+    if (statusCode < 400) return;
+    if (!isHostAllowed(url)) return; // 🔒 allow list
+
+    const event = {
+      kind: 'network',
+      status: statusCode,
+      url,
+      method,
+      time: Date.now()
+    };
+
+    storeEvent(event, tabId);
+    safeSend(tabId, {
+      type: 'network-error',
+      statusCode,
+      url,
+      method
+    });
+  },
+  { urls: ['<all_urls>'] }
+);
+
+
+chrome.webRequest.onErrorOccurred.addListener(
+  (details) => {
+    const { error, url, method, tabId } = details;
+
+    if (tabId === -1) return;
+    if (!isHostAllowed(url)) return; // 🔒 allow list
+
+    const event = {
+      kind: 'network',
+      status: 'FAIL',
+      url,
+      method,
+      error,
+      time: Date.now()
+    };
+
+    storeEvent(event, tabId);
+    safeSend(tabId, {
+      type: 'network-failure',
+      error,
+      url,
+      method
+    });
+  },
+  { urls: ['<all_urls>'] }
+);
+
+
+/* --------------------------------
+ * Console errors from content.js
+ * -------------------------------- */
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (!msg) return;
+
+  if (msg.type === 'clear-events') {
+    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      if (!tab?.id) return;
+
+      if (msg.type === 'is-allowed-host') {
+        sendResponse(isHostAllowed(msg.host));
+        return true;
+      }
+
+      if (msg.type === 'get-closed-tabs') {
+        sendResponse(getClosedTabInfo());
+        return true; // async response allowed
+        }
+      chrome.storage.local.get({ faultlineEvents: [] }, res => {
+        const remaining = res.faultlineEvents.filter(
+          e => e.tabId !== tab.id
+        );
+
+        chrome.storage.local.set({ faultlineEvents: remaining }, () => {
+          chrome.action.setBadgeText({ text: '', tabId: tab.id });
+          safeSend(tab.id, { __FAULTLINE_EVENT__: true });
+        });
+      });
+    });
+    return;
+  }
+
+  if (msg.type === 'clear-tab-events' && typeof msg.tabId === 'number') {
+    chrome.storage.local.get({ faultlineEvents: [] }, res => {
+        const remaining = res.faultlineEvents.filter(
+        e => e.tabId !== msg.tabId
+        );
+
+        chrome.storage.local.set({ faultlineEvents: remaining }, () => {
+        // update badge for active tab
+        updateBadgeForActiveTab();
+        });
+    });
+    return;
+    }
+
+  if (msg.type === 'console') {
+    const tab = sender.tab;
+    if (!tab?.url) return;
+    if (!isHostAllowed(tab.url)) return; // allow-list filter HERE
+
+    const event = {
+      kind: 'console',
+      level: msg.level,
+      message: msg.message,
+      time: Date.now()
+    };
+
+    storeEvent(event, tab.id);
+  }
+
+
+});
+
+

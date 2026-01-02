@@ -1,0 +1,230 @@
+const listEl = document.getElementById('list');
+const clearBtn = document.getElementById('clear');
+
+// collapsed by default
+let activeTabId = null;
+let didAutoScroll = false;
+const collapsedTabs = {}; // tabId -> boolean
+
+function formatMs(ms) {
+  const total = Math.ceil(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+async function getTabsMap() {
+  const tabs = await chrome.tabs.query({});
+  const map = {};
+  tabs.forEach(t => {
+    map[t.id] = {
+      title: t.title || '(no title)',
+      favIconUrl: t.favIconUrl
+    };
+  });
+  return map;
+}
+
+function groupByTab(events) {
+  return events.reduce((acc, e) => {
+    if (!acc[e.tabId]) acc[e.tabId] = [];
+    acc[e.tabId].push(e);
+    return acc;
+  }, {});
+}
+
+async function getClosedTabsInfo() {
+  return new Promise(res => {
+    chrome.runtime.sendMessage(
+      { type: 'get-closed-tabs' },
+      res
+    );
+  });
+}
+
+function render(groups, tabsMap, closedInfo) {
+  listEl.innerHTML = '';
+
+  const tabIds = Object.keys(groups);
+  if (tabIds.length === 0) {
+    listEl.innerHTML =
+      '<div style="color:#777;font-size:12px">No errors yet</div>';
+    return;
+  }
+
+  tabIds.forEach(tabId => {
+    if (!(tabId in collapsedTabs)) {
+      // auto-expand active tab on first render
+        collapsedTabs[tabId] = tabId !== String(activeTabId);
+    }
+
+    const isCollapsed = collapsedTabs[tabId];
+    const tabInfo = tabsMap[tabId];
+    const isClosed = !tabInfo;
+    const remainingMs = closedInfo?.[tabId];
+
+    const isActive = Number(tabId) === activeTabId;
+
+    /* ---------- Header ---------- */
+    const header = document.createElement('div');
+    header.dataset.tabId = tabId;
+
+    header.style.display = 'flex';
+    header.style.alignItems = 'center';
+    header.style.justifyContent = 'space-between';
+    header.style.cursor = 'pointer';
+    header.style.margin = '10px 0 4px';
+    header.style.fontWeight = 'bold';
+    header.style.fontSize = '12px';
+    header.style.padding = '4px 6px';
+    header.style.borderRadius = '4px';
+
+    if (isActive) {
+    header.style.color = '#ffffff';
+    header.style.background = 'rgba(88,166,255,0.12)';
+    header.style.borderLeft = '3px solid #58a6ff';
+    } else {
+    header.style.color = isClosed ? '#c586c0' : '#9cdcfe';
+    }
+
+    const left = document.createElement('div');
+    left.style.display = 'flex';
+    left.style.alignItems = 'center';
+
+    /* caret */
+    const caret = document.createElement('span');
+    caret.textContent = isCollapsed ? '▶' : '▼';
+    caret.style.marginRight = '6px';
+    left.appendChild(caret);
+
+    /* favicon */
+    if (!isClosed && tabInfo?.favIconUrl) {
+    const icon = document.createElement('img');
+    icon.src = tabInfo.favIconUrl;
+    icon.style.width = '14px';
+    icon.style.height = '14px';
+    icon.style.marginRight = '6px';
+    left.appendChild(icon);
+    }
+
+    /* title */
+    let title = isClosed ? 'Closed tab' : tabInfo.title;
+    if (isClosed && remainingMs > 0) {
+    title += ` (auto-clean in ${formatMs(remainingMs)})`;
+    }
+    left.appendChild(document.createTextNode(title));
+
+    /* right-side clear button */
+    const clearBtn = document.createElement('button');
+    clearBtn.textContent = '✕';
+    clearBtn.title = 'Clear this tab';
+    clearBtn.style.background = 'transparent';
+    clearBtn.style.border = 'none';
+    clearBtn.style.color = '#aaa';
+    clearBtn.style.cursor = 'pointer';
+    clearBtn.style.fontSize = '14px';
+    clearBtn.style.padding = '0 4px';
+
+    clearBtn.onclick = (e) => {
+    e.stopPropagation(); // IMPORTANT: don’t toggle collapse
+    chrome.runtime.sendMessage({
+        type: 'clear-tab-events',
+        tabId: Number(tabId)
+    });
+    delete collapsedTabs[tabId];
+    loadAndRender();
+    };
+
+    header.onclick = () => {
+    collapsedTabs[tabId] = !collapsedTabs[tabId];
+    loadAndRender();
+    };
+
+    header.appendChild(left);
+    header.appendChild(clearBtn);
+    listEl.appendChild(header);
+
+    // Auto-scroll active tab into view ONCE
+    if (isActive && !didAutoScroll) {
+    requestAnimationFrame(() => {
+        header.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth'
+        });
+    });
+    didAutoScroll = true;
+    }
+
+    if (isCollapsed) return;
+
+    /* ---------- Events ---------- */
+    groups[tabId].slice().reverse().forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'item';
+
+      const type = document.createElement('div');
+      type.className =
+        'type ' + (item.kind === 'console' ? 'error' : 'network');
+      type.textContent =
+        item.kind === 'console'
+          ? `Console ${item.level}`
+          : `HTTP ${item.status}`;
+
+      const msg = document.createElement('div');
+      msg.textContent = item.message || item.url || '—';
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = new Date(item.time).toLocaleTimeString();
+
+      div.appendChild(type);
+      div.appendChild(msg);
+      div.appendChild(meta);
+      listEl.appendChild(div);
+    });
+  });
+}
+
+async function detectActiveTab() {
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true
+  });
+  activeTabId = tab?.id ?? null;
+}
+
+async function loadAndRender() {
+  const [tabsMap, data, closedInfo] = await Promise.all([
+    getTabsMap(),
+    new Promise(res =>
+      chrome.storage.local.get({ faultlineEvents: [] }, res)
+    ),
+    getClosedTabsInfo()
+  ]);
+
+  const groups = groupByTab(data.faultlineEvents);
+  render(groups, tabsMap, closedInfo);
+}
+
+// Initial load - Startup
+(async function init() {
+  await detectActiveTab();
+  loadAndRender();
+})();
+
+// Refresh countdown every second while popup is open
+const interval = setInterval(loadAndRender, 1000);
+window.addEventListener('unload', () => clearInterval(interval));
+
+// Clear current tab only
+clearBtn.onclick = () => {
+  chrome.runtime.sendMessage({ type: 'clear-events' });
+  loadAndRender();
+};
+
+// Live updates
+chrome.runtime.onMessage.addListener(msg => {
+  if (msg.__FAULTLINE_EVENT__) {
+    loadAndRender();
+  }
+});

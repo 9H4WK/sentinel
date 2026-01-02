@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Sentinel SF",
+  "version": "0.1",
+  "description": "Shows console errors and failed network requests (404/500+) as toasts while you browse (local use).",
+  "permissions": [
+    "webRequest",
+    "tabs",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+        "matches": ["http://*/*", "https://*/*"],
+        "js": ["content.js"],
+        "run_at": "document_idle"
+  }
+],
+"web_accessible_resources": [
+  {
+    "resources": ["injected.js"],
+    "matches": ["<all_urls>"]
+  }
+],
+  "icons": {
+    "48": "icons/icon48.png"
+  },
+  "action": {
+    "default_popup": "popup.html"
+    }
+}
