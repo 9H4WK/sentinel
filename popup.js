@@ -54,6 +54,12 @@ function getClosedTabsInfo() {
   });
 }
 
+function formatDelta(ms) {
+  if (ms < 0) return '';
+  if (ms < 1000) return `${ms} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
+}
+
 /* -------------------------
  * Render
  * ------------------------- */
@@ -193,16 +199,27 @@ function render(groups, tabsMap, closedInfo) {
         const wrapper = document.createElement('div');
         wrapper.className = 'meta';
         wrapper.style.color = '#6a9955';
-        wrapper.style.marginTop = '4px';
+        wrapper.style.marginTop = '6px';
 
         const title = document.createElement('div');
         title.textContent = 'Reproduction steps:';
+        title.style.marginBottom = '2px';
         wrapper.appendChild(title);
 
         item.actions.forEach((a, i) => {
+          const prev = item.actions[i - 1];
+          const delta = prev
+            ? a.time - prev.time
+            : item.time - a.time;
+
+          const label = prev
+            ? `+${formatDelta(delta)}`
+            : `error in ${formatDelta(delta)}`;
+
           const step = document.createElement('div');
           step.textContent =
-            `${i + 1}. ${a.type}: ${a.label}`;
+            `${i + 1}. ${a.type}: ${a.label}  (${label})`;
+
           wrapper.appendChild(step);
         });
 

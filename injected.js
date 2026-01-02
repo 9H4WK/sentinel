@@ -12,24 +12,37 @@
    * -------------------------------- */
   function safeStringify(val) {
     try {
-      if (typeof val === 'string') return val;
-      return JSON.stringify(val);
-    } catch {
-      return String(val);
-    }
-  }
+      // Real Error object
+      if (val instanceof Error) {
+        return `${val.name}: ${val.message}`;
+      }
 
-  function send(payload) {
-    try {
-      window.postMessage(
-        {
-          source: SOURCE,
-          payload
-        },
-        '*'
-      );
+      // Error-like object (Angular / Zone / Axios, etc.)
+      if (
+        val &&
+        typeof val === 'object' &&
+        ('message' in val || 'stack' in val)
+      ) {
+        const name = val.name || 'Error';
+        const msg = val.message || '';
+        return `${name}: ${msg}`;
+      }
+
+      // String
+      if (typeof val === 'string') {
+        return val;
+      }
+
+      // Primitive
+      if (typeof val !== 'object') {
+        return String(val);
+      }
+
+      // Plain object (limit size)
+      const json = JSON.stringify(val);
+      return json === '{}' ? '[object]' : json;
     } catch {
-      // swallow
+      return '[unserializable]';
     }
   }
 
@@ -167,6 +180,21 @@
   function lastAction() {
     return __faultlineActions.at(-1) || null;
   }
+
+  function send(payload) {
+    try {
+      window.postMessage(
+        {
+          source: 'faultline',
+          payload
+        },
+        '*'
+      );
+    } catch {
+      // swallow – never break the page
+    }
+  }
+
 
   /* --------------------------------
    * Console interception
