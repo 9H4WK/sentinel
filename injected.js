@@ -134,7 +134,7 @@
         level,
         message,
         stack,
-        lastAction: lastAction()
+        actions: __faultlineActions.slice(-3) // ⬅️ last 3
       });
 
       return original.apply(console, args);
@@ -150,7 +150,7 @@
       level: 'error',
       message: e.message,
       stack: e.error?.stack || null,
-      lastAction: lastAction()
+      actions: __faultlineActions.slice(-3) // ⬅️ last 3
     });
   });
 
@@ -163,7 +163,7 @@
       level: 'error',
       message: `UnhandledPromiseRejection: ${safeStringify(e.reason)}`,
       stack: e.reason?.stack || null,
-      lastAction: lastAction()
+      actions: __faultlineActions.slice(-3) // ⬅️ last 3
     });
   });
 })();

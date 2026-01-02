@@ -85,7 +85,8 @@ window.addEventListener('message', (e) => {
       type: 'console',
       level: p.level,
       message: p.message,
-      lastAction: p.lastAction || null
+      stack: p.stack,
+      actions: Array.isArray(p.actions) ? p.actions : []
     });
   }
 });

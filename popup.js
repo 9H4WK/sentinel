@@ -189,13 +189,24 @@ function render(groups, tabsMap, closedInfo) {
       div.appendChild(msg);
       div.appendChild(meta);
 
-      if (item.lastAction) {
-        const action = document.createElement('div');
-        action.className = 'meta';
-        action.style.color = '#6a9955';
-        action.textContent =
-          `After ${item.lastAction.type}: ${item.lastAction.label}`;
-        div.appendChild(action);
+      if (item.actions && item.actions.length) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'meta';
+        wrapper.style.color = '#6a9955';
+        wrapper.style.marginTop = '4px';
+
+        const title = document.createElement('div');
+        title.textContent = 'Reproduction steps:';
+        wrapper.appendChild(title);
+
+        item.actions.forEach((a, i) => {
+          const step = document.createElement('div');
+          step.textContent =
+            `${i + 1}. ${a.type}: ${a.label}`;
+          wrapper.appendChild(step);
+        });
+
+        div.appendChild(wrapper);
       }
 
       listEl.appendChild(div);

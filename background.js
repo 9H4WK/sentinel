@@ -202,6 +202,7 @@ chrome.webRequest.onCompleted.addListener(
   (details) => {
     (async () => {
       const { statusCode, url, method, tabId } = details;
+      const actions = lastActionByTab.get(tabId)?.slice(-3) || [];
 
       if (tabId === -1) return;
       if (statusCode < 400) return;
@@ -212,7 +213,7 @@ chrome.webRequest.onCompleted.addListener(
         status: statusCode,
         url,
         method,
-        lastAction: lastActionByTab.get(tabId) || null,
+        actions,
         time: Date.now()
       };
 
@@ -232,6 +233,7 @@ chrome.webRequest.onErrorOccurred.addListener(
   (details) => {
     (async () => {
       const { error, url, method, tabId } = details;
+      const actions = lastActionByTab.get(tabId)?.slice(-3) || [];
 
       if (tabId === -1) return;
       if (!(await isHostAllowed(url))) return;
@@ -242,7 +244,7 @@ chrome.webRequest.onErrorOccurred.addListener(
         url,
         method,
         error,
-        lastAction: lastActionByTab.get(tabId) || null,
+        actions,
         time: Date.now()
       };
 
@@ -268,7 +270,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const tabId = sender.tab?.id;
     if (!tabId) return;
 
-    lastActionByTab.set(tabId, msg.action);
+    const existing = lastActionByTab.get(tabId) || [];
+    existing.push(msg.action);
+    if (existing.length > 10) existing.shift();
+    lastActionByTab.set(tabId, existing);
     return;
   }
 
@@ -288,7 +293,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         level: msg.level,
         message: msg.message,
         stack: msg.stack,
-        lastAction: msg.lastAction || null,
+        actions: Array.isArray(msg.actions) ? msg.actions : [],
         time: Date.now()
       };
 
