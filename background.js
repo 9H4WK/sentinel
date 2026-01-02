@@ -12,6 +12,7 @@ const CLOSED_TAB_RETENTION_MS = 0.2 * 60 * 1000; // 5 minutes
 const DEFAULT_ALLOW_LIST = [
   'localhost',
   '127.0.0.1',
+  '*.shareforcelegal.com'
 ]; 
 
 /* --------------------------------
@@ -196,123 +197,170 @@ chrome.tabs.onRemoved.addListener((tabId) => {
  * -------------------------------- */
 chrome.webRequest.onCompleted.addListener(
   (details) => {
-    const { statusCode, url, method, tabId } = details;
+    (async () => {
+      const { statusCode, url, method, tabId } = details;
 
-    if (tabId === -1) return;
-    if (statusCode < 400) return;
-    if (!isHostAllowed(url)) return; // 🔒 allow list
+      if (tabId === -1) return;
+      if (statusCode < 400) return;
+      if (!(await isHostAllowed(url))) return;
 
-    const event = {
-      kind: 'network',
-      status: statusCode,
-      url,
-      method,
-      time: Date.now()
-    };
+      const event = {
+        kind: 'network',
+        status: statusCode,
+        url,
+        method,
+        time: Date.now()
+      };
 
-    storeEvent(event, tabId);
-    safeSend(tabId, {
-      type: 'network-error',
-      statusCode,
-      url,
-      method
-    });
+      storeEvent(event, tabId);
+      safeSend(tabId, {
+        type: 'network-error',
+        statusCode,
+        url,
+        method
+      });
+    })();
   },
   { urls: ['<all_urls>'] }
 );
-
 
 chrome.webRequest.onErrorOccurred.addListener(
   (details) => {
-    const { error, url, method, tabId } = details;
+    (async () => {
+      const { error, url, method, tabId } = details;
 
-    if (tabId === -1) return;
-    if (!isHostAllowed(url)) return; // 🔒 allow list
+      if (tabId === -1) return;
+      if (!(await isHostAllowed(url))) return;
 
-    const event = {
-      kind: 'network',
-      status: 'FAIL',
-      url,
-      method,
-      error,
-      time: Date.now()
-    };
+      const event = {
+        kind: 'network',
+        status: 'FAIL',
+        url,
+        method,
+        error,
+        time: Date.now()
+      };
 
-    storeEvent(event, tabId);
-    safeSend(tabId, {
-      type: 'network-failure',
-      error,
-      url,
-      method
-    });
+      storeEvent(event, tabId);
+      safeSend(tabId, {
+        type: 'network-failure',
+        error,
+        url,
+        method
+      });
+    })();
   },
   { urls: ['<all_urls>'] }
 );
-
 
 /* --------------------------------
  * Console errors from content.js
  * -------------------------------- */
-chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (!msg) return;
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || !msg.type) return;
 
+  /* ===============================
+   * CONSOLE EVENTS
+   * =============================== */
+  if (msg.type === 'console') {
+    (async () => {
+      const tab = sender.tab;
+      if (!tab?.id || !tab.url) return;
+
+      // TEMP: disable allow-list while debugging
+      // if (!(await isHostAllowed(tab.url))) return;
+
+      const event = {
+        kind: 'console',
+        level: msg.level,
+        message: msg.message,
+        stack: msg.stack,
+        lastAction: msg.lastAction || null,
+        time: Date.now()
+      };
+
+      storeEvent(event, tab.id);
+      updateBadgeForActiveTab();
+    })();
+
+    return true; // 🔴 REQUIRED
+  }
+
+  /* ===============================
+   * CLEAR TAB EVENTS
+   * =============================== */
+  if (msg.type === 'clear-tab-events') {
+    chrome.storage.local.get({ faultlineEvents: [] }, res => {
+      const remaining = res.faultlineEvents.filter(
+        e => e.tabId !== msg.tabId
+      );
+
+      chrome.storage.local.set({ faultlineEvents: remaining }, () => {
+        updateBadgeForActiveTab();
+        sendResponse({ ok: true });
+      });
+    });
+    return true;
+  }
+
+  /* ===============================
+   * CLEAR ACTIVE TAB
+   * =============================== */
   if (msg.type === 'clear-events') {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
       if (!tab?.id) return;
 
-      if (msg.type === 'is-allowed-host') {
-        sendResponse(isHostAllowed(msg.host));
-        return true;
-      }
-
-      if (msg.type === 'get-closed-tabs') {
-        sendResponse(getClosedTabInfo());
-        return true; // async response allowed
-        }
       chrome.storage.local.get({ faultlineEvents: [] }, res => {
         const remaining = res.faultlineEvents.filter(
           e => e.tabId !== tab.id
         );
 
         chrome.storage.local.set({ faultlineEvents: remaining }, () => {
-          chrome.action.setBadgeText({ text: '', tabId: tab.id });
-          safeSend(tab.id, { __FAULTLINE_EVENT__: true });
+          updateBadgeForActiveTab();
+          sendResponse({ ok: true });
         });
       });
     });
-    return;
+    return true;
   }
 
-  if (msg.type === 'clear-tab-events' && typeof msg.tabId === 'number') {
-    chrome.storage.local.get({ faultlineEvents: [] }, res => {
-        const remaining = res.faultlineEvents.filter(
-        e => e.tabId !== msg.tabId
-        );
+  /* ===============================
+   * CLOSED TAB TTL INFO
+   * =============================== */
+  if (msg.type === 'get-closed-tabs') {
+    const now = Date.now();
+    const info = {};
 
-        chrome.storage.local.set({ faultlineEvents: remaining }, () => {
-        // update badge for active tab
-        updateBadgeForActiveTab();
-        });
-    });
-    return;
+    for (const [tabId, closedAt] of closedTabs.entries()) {
+      info[tabId] = Math.max(
+        0,
+        CLOSED_TAB_RETENTION_MS - (now - closedAt)
+      );
     }
 
-  if (msg.type === 'console') {
-    const tab = sender.tab;
-    if (!tab?.url) return;
-    if (!isHostAllowed(tab.url)) return; // allow-list filter HERE
-
-    const event = {
-      kind: 'console',
-      level: msg.level,
-      message: msg.message,
-      time: Date.now()
-    };
-
-    storeEvent(event, tab.id);
+    sendResponse(info);
+    return true;
   }
 
+  /* ===============================
+   * ALLOW-LIST
+   * =============================== */
+  if (msg.type === 'get-allow-list') {
+    getAllowList().then(list => sendResponse(list));
+    return true;
+  }
 
+  if (msg.type === 'set-allow-list') {
+    chrome.storage.local.set(
+      { allowList: msg.allowList },
+      () => sendResponse({ ok: true })
+    );
+    return true;
+  }
+
+  if (msg.type === 'is-allowed-host') {
+    isHostAllowed(msg.host).then(allowed => sendResponse(allowed));
+    return true;
+  }
 });
-
 

@@ -1,16 +1,28 @@
 const listEl = document.getElementById('list');
 const clearBtn = document.getElementById('clear');
 
-// collapsed by default
 let activeTabId = null;
 let didAutoScroll = false;
+
+// UI-only state (popup lifetime)
 const collapsedTabs = {}; // tabId -> boolean
 
+/* -------------------------
+ * Helpers
+ * ------------------------- */
 function formatMs(ms) {
   const total = Math.ceil(ms / 1000);
   const m = Math.floor(total / 60);
   const s = total % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+async function detectActiveTab() {
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true
+  });
+  activeTabId = tab?.id ?? null;
 }
 
 async function getTabsMap() {
@@ -33,7 +45,7 @@ function groupByTab(events) {
   }, {});
 }
 
-async function getClosedTabsInfo() {
+function getClosedTabsInfo() {
   return new Promise(res => {
     chrome.runtime.sendMessage(
       { type: 'get-closed-tabs' },
@@ -42,6 +54,9 @@ async function getClosedTabsInfo() {
   });
 }
 
+/* -------------------------
+ * Render
+ * ------------------------- */
 function render(groups, tabsMap, closedInfo) {
   listEl.innerHTML = '';
 
@@ -54,15 +69,14 @@ function render(groups, tabsMap, closedInfo) {
 
   tabIds.forEach(tabId => {
     if (!(tabId in collapsedTabs)) {
-      // auto-expand active tab on first render
-        collapsedTabs[tabId] = tabId !== String(activeTabId);
+      // collapsed by default, but auto-expand active tab
+      collapsedTabs[tabId] = Number(tabId) !== activeTabId;
     }
 
     const isCollapsed = collapsedTabs[tabId];
     const tabInfo = tabsMap[tabId];
     const isClosed = !tabInfo;
     const remainingMs = closedInfo?.[tabId];
-
     const isActive = Number(tabId) === activeTabId;
 
     /* ---------- Header ---------- */
@@ -74,85 +88,79 @@ function render(groups, tabsMap, closedInfo) {
     header.style.justifyContent = 'space-between';
     header.style.cursor = 'pointer';
     header.style.margin = '10px 0 4px';
+    header.style.padding = '4px 6px';
     header.style.fontWeight = 'bold';
     header.style.fontSize = '12px';
-    header.style.padding = '4px 6px';
     header.style.borderRadius = '4px';
 
     if (isActive) {
-    header.style.color = '#ffffff';
-    header.style.background = 'rgba(88,166,255,0.12)';
-    header.style.borderLeft = '3px solid #58a6ff';
+      header.style.color = '#ffffff';
+      header.style.background = 'rgba(88,166,255,0.12)';
+      header.style.borderLeft = '3px solid #58a6ff';
     } else {
-    header.style.color = isClosed ? '#c586c0' : '#9cdcfe';
+      header.style.color = isClosed ? '#c586c0' : '#9cdcfe';
     }
 
     const left = document.createElement('div');
     left.style.display = 'flex';
     left.style.alignItems = 'center';
 
-    /* caret */
     const caret = document.createElement('span');
     caret.textContent = isCollapsed ? '▶' : '▼';
     caret.style.marginRight = '6px';
     left.appendChild(caret);
 
-    /* favicon */
-    if (!isClosed && tabInfo?.favIconUrl) {
-    const icon = document.createElement('img');
-    icon.src = tabInfo.favIconUrl;
-    icon.style.width = '14px';
-    icon.style.height = '14px';
-    icon.style.marginRight = '6px';
-    left.appendChild(icon);
+    if (!isClosed && tabInfo.favIconUrl) {
+      const icon = document.createElement('img');
+      icon.src = tabInfo.favIconUrl;
+      icon.style.width = '14px';
+      icon.style.height = '14px';
+      icon.style.marginRight = '6px';
+      left.appendChild(icon);
     }
 
-    /* title */
     let title = isClosed ? 'Closed tab' : tabInfo.title;
     if (isClosed && remainingMs > 0) {
-    title += ` (auto-clean in ${formatMs(remainingMs)})`;
+      title += ` (auto-clean in ${formatMs(remainingMs)})`;
     }
+
     left.appendChild(document.createTextNode(title));
 
-    /* right-side clear button */
-    const clearBtn = document.createElement('button');
-    clearBtn.textContent = '✕';
-    clearBtn.title = 'Clear this tab';
-    clearBtn.style.background = 'transparent';
-    clearBtn.style.border = 'none';
-    clearBtn.style.color = '#aaa';
-    clearBtn.style.cursor = 'pointer';
-    clearBtn.style.fontSize = '14px';
-    clearBtn.style.padding = '0 4px';
+    const clearBtnTab = document.createElement('button');
+    clearBtnTab.textContent = '✕';
+    clearBtnTab.title = 'Clear this tab';
+    clearBtnTab.style.background = 'transparent';
+    clearBtnTab.style.border = 'none';
+    clearBtnTab.style.color = '#aaa';
+    clearBtnTab.style.cursor = 'pointer';
+    clearBtnTab.style.fontSize = '14px';
+    clearBtnTab.style.padding = '0 4px';
 
-    clearBtn.onclick = (e) => {
-    e.stopPropagation(); // IMPORTANT: don’t toggle collapse
-    chrome.runtime.sendMessage({
+    clearBtnTab.onclick = (e) => {
+      e.stopPropagation();
+      chrome.runtime.sendMessage({
         type: 'clear-tab-events',
         tabId: Number(tabId)
-    });
-    delete collapsedTabs[tabId];
-    loadAndRender();
+      });
+      delete collapsedTabs[tabId];
+      loadAndRender();
     };
 
     header.onclick = () => {
-    collapsedTabs[tabId] = !collapsedTabs[tabId];
-    loadAndRender();
+      collapsedTabs[tabId] = !collapsedTabs[tabId];
+      loadAndRender();
     };
 
     header.appendChild(left);
-    header.appendChild(clearBtn);
+    header.appendChild(clearBtnTab);
     listEl.appendChild(header);
 
     // Auto-scroll active tab into view ONCE
     if (isActive && !didAutoScroll) {
-    requestAnimationFrame(() => {
-        header.scrollIntoView({
-        block: 'nearest',
-        behavior: 'smooth'
-        });
-    });
-    didAutoScroll = true;
+      requestAnimationFrame(() => {
+        header.scrollIntoView({ block: 'nearest' });
+      });
+      didAutoScroll = true;
     }
 
     if (isCollapsed) return;
@@ -180,19 +188,24 @@ function render(groups, tabsMap, closedInfo) {
       div.appendChild(type);
       div.appendChild(msg);
       div.appendChild(meta);
+
+      if (item.lastAction) {
+        const action = document.createElement('div');
+        action.className = 'meta';
+        action.style.color = '#6a9955';
+        action.textContent =
+          `After ${item.lastAction.type}: ${item.lastAction.label}`;
+        div.appendChild(action);
+      }
+
       listEl.appendChild(div);
     });
   });
 }
 
-async function detectActiveTab() {
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    currentWindow: true
-  });
-  activeTabId = tab?.id ?? null;
-}
-
+/* -------------------------
+ * Load & Live updates
+ * ------------------------- */
 async function loadAndRender() {
   const [tabsMap, data, closedInfo] = await Promise.all([
     getTabsMap(),
@@ -202,27 +215,29 @@ async function loadAndRender() {
     getClosedTabsInfo()
   ]);
 
-  const groups = groupByTab(data.faultlineEvents);
-  render(groups, tabsMap, closedInfo);
+  const groups = groupByTab(data.faultlineEvents || []);
+  render(groups, tabsMap, closedInfo || {});
 }
 
-// Initial load - Startup
+// Init
 (async function init() {
   await detectActiveTab();
   loadAndRender();
 })();
 
-// Refresh countdown every second while popup is open
+// Refresh countdown while popup open
 const interval = setInterval(loadAndRender, 1000);
 window.addEventListener('unload', () => clearInterval(interval));
 
-// Clear current tab only
-clearBtn.onclick = () => {
-  chrome.runtime.sendMessage({ type: 'clear-events' });
-  loadAndRender();
-};
+// Clear current tab only (top button, if present)
+if (clearBtn) {
+  clearBtn.onclick = () => {
+    chrome.runtime.sendMessage({ type: 'clear-events' });
+    loadAndRender();
+  };
+}
 
-// Live updates
+// Live updates from background
 chrome.runtime.onMessage.addListener(msg => {
   if (msg.__FAULTLINE_EVENT__) {
     loadAndRender();

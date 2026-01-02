@@ -84,7 +84,8 @@ window.addEventListener('message', (e) => {
     chrome.runtime.sendMessage({
       type: 'console',
       level: p.level,
-      message: p.message
+      message: p.message,
+      lastAction: p.lastAction || null
     });
   }
 });
