@@ -6,6 +6,9 @@
 // Auto-cleanup config
 const CLOSED_TAB_RETENTION_MS = 0.2 * 60 * 1000; // 5 minutes
 
+// Last user action per tab (for network correlation)
+const lastActionByTab = new Map();
+
 /* --------------------------------
  * Allow list (hostnames only)
  * -------------------------------- */
@@ -209,6 +212,7 @@ chrome.webRequest.onCompleted.addListener(
         status: statusCode,
         url,
         method,
+        lastAction: lastActionByTab.get(tabId) || null,
         time: Date.now()
       };
 
@@ -238,6 +242,7 @@ chrome.webRequest.onErrorOccurred.addListener(
         url,
         method,
         error,
+        lastAction: lastActionByTab.get(tabId) || null,
         time: Date.now()
       };
 
@@ -258,6 +263,14 @@ chrome.webRequest.onErrorOccurred.addListener(
  * -------------------------------- */
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
+
+  if (msg.type === 'user-action') {
+    const tabId = sender.tab?.id;
+    if (!tabId) return;
+
+    lastActionByTab.set(tabId, msg.action);
+    return;
+  }
 
   /* ===============================
    * CONSOLE EVENTS

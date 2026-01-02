@@ -90,6 +90,16 @@ window.addEventListener('message', (e) => {
   }
 });
 
+window.addEventListener('message', (e) => {
+  if (e.source !== window) return;
+  if (e.data?.source !== 'faultline-action') return;
+
+  chrome.runtime.sendMessage({
+    type: 'user-action',
+    action: e.data.action
+  });
+});
+
 /* ---------------------------
  * Receive messages FROM BACKGROUND
  * --------------------------- */

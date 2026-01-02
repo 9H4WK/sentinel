@@ -44,6 +44,19 @@
     if (__faultlineActions.length > MAX_ACTIONS) {
       __faultlineActions.shift();
     }
+    notifyAction(action);
+  }
+
+  function notifyAction(action) {
+    try {
+      window.postMessage(
+        {
+          source: 'faultline-action',
+          action
+        },
+        '*'
+      );
+    } catch {}
   }
 
   function getLabel(el) {
