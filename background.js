@@ -5,6 +5,8 @@
 
 // Auto-cleanup config
 const CLOSED_TAB_RETENTION_MS = 0.2 * 60 * 1000; // 5 minutes
+// How many actions to show per error (must match injected.js)
+const ACTIONS_PER_ERROR = 5;
 
 // Last user action per tab (for network correlation)
 const lastActionByTab = new Map();
@@ -202,7 +204,7 @@ chrome.webRequest.onCompleted.addListener(
   (details) => {
     (async () => {
       const { statusCode, url, method, tabId } = details;
-      const actions = lastActionByTab.get(tabId)?.slice(-3) || [];
+      const actions = lastActionByTab.get(tabId)?.slice(-ACTIONS_PER_ERROR) || [];
 
       if (tabId === -1) return;
       if (statusCode < 400) return;
@@ -233,7 +235,7 @@ chrome.webRequest.onErrorOccurred.addListener(
   (details) => {
     (async () => {
       const { error, url, method, tabId } = details;
-      const actions = lastActionByTab.get(tabId)?.slice(-3) || [];
+      const actions = lastActionByTab.get(tabId)?.slice(-ACTIONS_PER_ERROR) || [];
 
       if (tabId === -1) return;
       if (!(await isHostAllowed(url))) return;

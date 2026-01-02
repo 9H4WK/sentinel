@@ -4,6 +4,11 @@
 // Tracks last user action
 // Sends structured events to content.js via window.postMessage
 
+// How many user actions we keep in memory
+const MAX_ACTION_BUFFER = 10;
+// How many actions to attach to each error
+const ACTIONS_PER_ERROR = 5;
+
 (function () {
   const SOURCE = 'faultline';
 
@@ -50,7 +55,7 @@
    * User action tracking
    * -------------------------------- */
   const __faultlineActions = [];
-  const MAX_ACTIONS = 10;
+  const MAX_ACTIONS = MAX_ACTION_BUFFER;
 
   function recordAction(action) {
     __faultlineActions.push(action);
@@ -211,7 +216,7 @@
         level,
         message,
         stack,
-        actions: __faultlineActions.slice(-3) // ⬅️ last 3
+        actions: __faultlineActions.slice(-ACTIONS_PER_ERROR)
       });
 
       return original.apply(console, args);
@@ -227,7 +232,7 @@
       level: 'error',
       message: e.message,
       stack: e.error?.stack || null,
-      actions: __faultlineActions.slice(-3) // ⬅️ last 3
+      actions: __faultlineActions.slice(-ACTIONS_PER_ERROR)
     });
   });
 
@@ -240,7 +245,7 @@
       level: 'error',
       message: `UnhandledPromiseRejection: ${safeStringify(e.reason)}`,
       stack: e.reason?.stack || null,
-      actions: __faultlineActions.slice(-3) // ⬅️ last 3
+      actions: __faultlineActions.slice(-ACTIONS_PER_ERROR)
     });
   });
 })();
