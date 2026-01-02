@@ -95,10 +95,16 @@ window.addEventListener('message', (e) => {
   if (e.source !== window) return;
   if (e.data?.source !== 'faultline-action') return;
 
-  chrome.runtime.sendMessage({
-    type: 'user-action',
-    action: e.data.action
-  });
+  try {
+    if (chrome?.runtime?.id) {
+      chrome.runtime.sendMessage({
+        type: 'user-action',
+        action: e.data.action
+      });
+    }
+  } catch (err) {
+    // Extension context invalidated – safe to ignore
+  }
 });
 
 /* ---------------------------

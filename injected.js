@@ -60,22 +60,71 @@
   }
 
   function getLabel(el) {
-    if (!el) return 'unknown element';
+    if (!el) return 'unknown';
 
-    const actionable = el.closest?.(
-      'button, a, input, textarea, select, [role="button"]'
-    );
+    // 1️⃣ Climb to the nearest actionable element
+    const target =
+      el.closest?.(
+        'button, a, [role="button"], input, select, textarea'
+      ) || el;
 
-    const target = actionable || el;
+    // 2️⃣ aria-label (best)
+    const ariaLabel = target.getAttribute?.('aria-label');
+    if (ariaLabel) return ariaLabel.trim();
 
-    return (
-      target.getAttribute?.('aria-label') ||
+    // 3️⃣ aria-labelledby
+    const labelledBy = target.getAttribute?.('aria-labelledby');
+    if (labelledBy) {
+      const labelEl = document.getElementById(labelledBy);
+      if (labelEl?.textContent) {
+        return labelEl.textContent.trim();
+      }
+    }
+
+    // 4️⃣ Visible text (handles normal buttons)
+    const text = target.textContent?.trim();
+    if (text && text.length > 0) {
+      return text.slice(0, 50);
+    }
+
+    // 5️⃣ Title attribute
+    const title = target.getAttribute?.('title');
+    if (title) return title.trim();
+
+    // 6️⃣ data-testid / data-test
+    const testId =
       target.getAttribute?.('data-testid') ||
-      target.textContent?.trim()?.slice(0, 50) ||
-      target.id ||
-      target.name ||
-      `<${target.tagName.toLowerCase()}>`
-    );
+      target.getAttribute?.('data-test');
+    if (testId) return testId;
+
+    // 7️⃣ Intelligent class-name inference (VERY IMPORTANT)
+    if (target.classList?.length) {
+      const meaningful = [...target.classList].filter(
+        c =>
+          !/^ng-/.test(c) &&
+          !/^_ngcontent/.test(c) &&
+          !/^(btn|button|active|disabled|show|open|dropdown|toggle)$/.test(c)
+      );
+
+      if (meaningful.length) {
+        return meaningful.slice(0, 2).join('.');
+      }
+    }
+
+    // 8️⃣ Icon-only button inference (ellipsis, kebab, etc.)
+    const icon = target.querySelector?.('i, svg');
+    if (icon) {
+      const iconClass = icon.className || '';
+      if (/ellipsis|kebab|dots|menu/i.test(iconClass)) {
+        return 'Settings (ellipsis)';
+      }
+      if (/cog|gear/i.test(iconClass)) {
+        return 'Settings';
+      }
+    }
+
+    // 9️⃣ Final fallback
+    return `<${target.tagName.toLowerCase()}>`;
   }
 
   document.addEventListener(
