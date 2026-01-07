@@ -144,6 +144,14 @@ function getClosedTabInfo() {
   return info;
 }
 
+function getEventsForTab(tabId) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get({ faultlineEvents: {} }, (res) => {
+      resolve(res.faultlineEvents[tabId] || []);
+    });
+  });
+}
+
 async function getAllowList() {
   const res = await chrome.storage.local.get({
     allowList: DEFAULT_ALLOW_LIST
@@ -204,11 +212,23 @@ chrome.webRequest.onCompleted.addListener(
   (details) => {
     (async () => {
       const { statusCode, url, method, tabId } = details;
-      const actions = lastActionByTab.get(tabId)?.slice(-ACTIONS_PER_ERROR) || [];
-
       if (tabId === -1) return;
       if (statusCode < 400) return;
       if (!(await isHostAllowed(url))) return;
+      
+      const existing = await new Promise((resolve) => {
+        chrome.storage.local.get({ faultlineEvents: {} }, (res) => {
+          resolve(res.faultlineEvents[tabId] || []);
+        });
+      });
+
+      if (existing.some(e => e.kind === 'network' && e.url === url && e.detail)) {
+        return;
+      }
+
+
+      const actions =
+        lastActionByTab.get(tabId)?.slice(-ACTIONS_PER_ERROR) || [];
 
       const event = {
         kind: 'network',
@@ -220,12 +240,7 @@ chrome.webRequest.onCompleted.addListener(
       };
 
       storeEvent(event, tabId);
-      safeSend(tabId, {
-        type: 'network-error',
-        statusCode,
-        url,
-        method
-      });
+      updateBadgeForActiveTab();
     })();
   },
   { urls: ['<all_urls>'] }
@@ -251,12 +266,6 @@ chrome.webRequest.onErrorOccurred.addListener(
       };
 
       storeEvent(event, tabId);
-      safeSend(tabId, {
-        type: 'network-failure',
-        error,
-        url,
-        method
-      });
     })();
   },
   { urls: ['<all_urls>'] }
@@ -383,4 +392,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg.type === 'network-page') {
+    const tabId = sender.tab?.id;
+    if (!tabId) return;
+
+    chrome.storage.local.get({ faultlineEvents: {} }, (res) => {
+      const all = res.faultlineEvents;
+      const list = all[tabId] || [];
+
+      // 🔴 Remove ANY existing network event for same URL
+      const cleaned = list.filter(
+        e => !(e.kind === 'network' && e.url === msg.url)
+      );
+
+      cleaned.push({
+        kind: 'network',
+        status: msg.status,
+        url: msg.url,
+        detail: msg.detail,        // ✅ GUARANTEED
+        actions: msg.actions || [],
+        time: msg.time || Date.now()
+      });
+
+      all[tabId] = cleaned;
+
+      chrome.storage.local.set({ faultlineEvents: all }, () => {
+        updateBadgeForActiveTab();
+      });
+    });
+
+    return;
+  }
+});
+
 

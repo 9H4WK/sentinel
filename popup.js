@@ -170,9 +170,16 @@ function render(groups, tabsMap, closedInfo) {
     }
 
     if (isCollapsed) return;
-
+    const hasNetworkErrors = groups[tabId].some(
+      (e) => e.kind === 'network'
+    );
     /* ---------- Events ---------- */
     groups[tabId].slice().reverse().forEach(item => {
+      // 🚫 Skip console errors if network errors exist
+      if (hasNetworkErrors && item.kind === 'console') {
+        return;
+      }
+      // continue rendering
       const div = document.createElement('div');
       div.className = 'item';
 
@@ -185,7 +192,10 @@ function render(groups, tabsMap, closedInfo) {
           : `HTTP ${item.status}`;
 
       const msg = document.createElement('div');
-      msg.textContent = item.message || item.url || '—';
+      msg.textContent =
+        item.detail
+          ? `${item.url} (${item.status}) — ${item.detail}`
+          : item.url;
 
       const meta = document.createElement('div');
       meta.className = 'meta';

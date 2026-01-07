@@ -107,21 +107,47 @@ window.addEventListener('message', (e) => {
   }
 });
 
-/* ---------------------------
- * Receive messages FROM BACKGROUND
- * --------------------------- */
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'network-error') {
+// ================================
+// 1. Listen to PAGE messages (faultline)
+// ================================
+window.addEventListener('message', (e) => {
+  if (e.source !== window) return;
+  if (e.data?.source !== 'faultline') return;
+
+  const p = e.data.payload;
+
+  // 🔹 NETWORK (toast + store)
+  if (p.type === 'network') {
     showToast(
-      `HTTP ${msg.statusCode}`,
-      `${msg.method} ${msg.url}`
+      `HTTP ${p.status}`,
+      p.detail || p.url
     );
+
+    try {
+      if (chrome?.runtime?.id) {
+        chrome.runtime.sendMessage({
+          type: 'network-page',
+          ...p
+        });
+      }
+    } catch {}
   }
 
-  if (msg.type === 'network-failure') {
+  // 🔹 CONSOLE
+  if (p.type === 'console') {
     showToast(
-      'Network failure',
-      `${msg.method} ${msg.url} (${msg.error})`
+      `Console ${p.level}`,
+      p.message
     );
+
+    try {
+      if (chrome?.runtime?.id) {
+        chrome.runtime.sendMessage({
+          type: 'console',
+          ...p
+        });
+      }
+    } catch {}
   }
 });
+

@@ -200,28 +200,138 @@ const ACTIONS_PER_ERROR = 5;
     }
   }
 
-
   /* --------------------------------
    * Console interception
    * -------------------------------- */
-  ['error', 'warn'].forEach((level) => {
-    const original = console[level];
+['error', 'warn'].forEach((level) => {
+  const original = console[level];
 
-    console[level] = function (...args) {
-      const message = args.map(safeStringify).join(' ');
+  console[level] = function (...args) {
+    try {
+      const message = args
+        .map((a) => {
+          try {
+            return safeStringify(a);
+          } catch {
+            return '';
+          }
+        })
+        .join(' ');
+
+      // 🚫 IGNORE Angular / HttpClient network spam
+      if (
+        /Http failure response for .*:\s*\d+/i.test(message) ||
+        /HttpErrorResponse/i.test(message)
+      ) {
+        return original.apply(console, args);
+      }
+
       const stack = new Error().stack;
 
-      send({
-        type: 'console',
-        level,
-        message,
-        stack,
-        actions: __faultlineActions.slice(-ACTIONS_PER_ERROR)
-      });
+      const actions =
+        Array.isArray(__faultlineActions)
+          ? __faultlineActions.slice(-ACTIONS_PER_ERROR)
+          : [];
 
-      return original.apply(console, args);
-    };
-  });
+      if (typeof send === 'function') {
+        send({
+          type: 'console',
+          level,
+          message,
+          stack,
+          actions
+        });
+      }
+    } catch {
+      // never break console
+    }
+
+    return original.apply(console, args);
+  };
+});
+
+  
+(function interceptFetch() {
+  const originalFetch = window.fetch;
+
+  window.fetch = async function (...args) {
+    const res = await originalFetch.apply(this, args);
+
+    try {
+      if (!res.ok) {
+        const clone = res.clone();
+        const text = await clone.text();
+
+        let detail = text;
+        try {
+          const json = JSON.parse(text);
+          if (json?.detail) detail = json.detail;
+          else if (json?.title) detail = json.title;
+        } catch {}
+
+        send({
+          type: 'network',
+          status: res.status,
+          url: res.url,
+          detail: String(detail).slice(0, 500),
+          actions: __faultlineActions.slice(-ACTIONS_PER_ERROR),
+          time: Date.now()
+        });
+      }
+    } catch {
+      // never break fetch
+    }
+
+    return res;
+  };
+})();
+
+(function interceptXHR() {
+  const open = XMLHttpRequest.prototype.open;
+  const sendXHR = XMLHttpRequest.prototype.send;
+
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.__faultline = { method, url };
+    return open.apply(this, arguments);
+  };
+
+  XMLHttpRequest.prototype.send = function () {
+    this.addEventListener('load', () => {
+      try {
+        if (this.status >= 400) {
+          let detail = this.responseText || '';
+
+          // Try to extract meaningful error message
+          try {
+            const json = JSON.parse(this.responseText);
+            if (json?.detail) {
+              detail = json.detail;
+            } else if (json?.title) {
+              detail = json.title;
+            }
+          } catch {
+            // non-JSON response, keep raw text
+          }
+
+          send({
+            type: 'network',
+            status: this.status,
+            url: this.responseURL,
+            detail: detail,
+            message: `${this.responseURL} (${this.status})`,
+            actions: __faultlineActions.slice(-ACTIONS_PER_ERROR),
+            time: Date.now()
+          });
+        }
+      } catch {
+        // never break XHR
+      }
+    });
+
+    return sendXHR.apply(this, arguments);
+  };
+})();
+
 
   /* --------------------------------
    * Uncaught JS errors
