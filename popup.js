@@ -6,6 +6,8 @@ let didAutoScroll = false;
 
 // UI-only state (popup lifetime)
 const collapsedTabs = {}; // tabId -> boolean
+const payloadOpenByEvent = {}; // eventKey -> boolean
+const responseOpenByEvent = {}; // eventKey -> boolean
 
 /* -------------------------
  * Helpers
@@ -60,6 +62,62 @@ function formatDelta(ms) {
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
+function getEventKey(item) {
+  return `${item.kind}|${item.status}|${item.url}|${item.time}`;
+}
+
+function trimObject(value, maxKeys, maxString) {
+  if (Array.isArray(value)) {
+    return value.slice(0, maxKeys).map((item) =>
+      trimObject(item, maxKeys, maxString)
+    );
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value).slice(0, maxKeys);
+    const trimmed = {};
+    entries.forEach(([k, v]) => {
+      trimmed[k] = trimObject(v, maxKeys, maxString);
+    });
+    return trimmed;
+  }
+  if (typeof value === 'string') {
+    return value.length > maxString
+      ? `${value.slice(0, maxString)}...`
+      : value;
+  }
+  return value;
+}
+
+function normalizeFieldValue(value, maxKeys, maxString) {
+  if (typeof value === 'string') {
+    let current = value.trim();
+    for (let i = 0; i < 2; i += 1) {
+      if (!(current.startsWith('{') || current.startsWith('['))) {
+        break;
+      }
+      try {
+        const parsed = JSON.parse(current);
+        if (typeof parsed === 'string') {
+          current = parsed.trim();
+          continue;
+        }
+        return trimObject(parsed, maxKeys, maxString);
+      } catch {
+        break;
+      }
+    }
+  }
+  return trimObject(value, maxKeys, maxString);
+}
+
+function buildPrettyPayload(fields, maxKeys, maxString) {
+  const trimmed = {};
+  fields.slice(0, maxKeys).forEach(([key, value]) => {
+    trimmed[key] = normalizeFieldValue(value, maxKeys, maxString);
+  });
+  return JSON.stringify(trimmed, null, 2);
+}
+
 function formatRequestInfo(request) {
   if (!request || typeof request !== 'object') return null;
 
@@ -73,29 +131,90 @@ function formatRequestInfo(request) {
   return parts.join(' • ');
 }
 
-function renderRequestFields(request, parent) {
-  if (!request?.fields || typeof request.fields !== 'object') return;
+function formatResponseInfo(response) {
+  if (!response || typeof response !== 'object') return null;
 
-  const fields = Object.entries(request.fields);
-  if (!fields.length) return;
+  const parts = [];
+  if (response.contentType) parts.push(response.contentType);
+  if (Number.isFinite(response.size)) {
+    parts.push(`${response.size} bytes`);
+  }
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'meta';
-  wrapper.style.color = '#9cdcfe';
-  wrapper.style.marginTop = '6px';
+  return parts.join(' ƒ?› ');
+}
 
-  const title = document.createElement('div');
-  title.textContent = 'Request fields:';
-  title.style.marginBottom = '2px';
-  wrapper.appendChild(title);
+function renderDetailsSection(options) {
+  const {
+    title,
+    fields,
+    eventKey,
+    openState,
+    maxKeys,
+    maxString,
+    parent
+  } = options;
 
-  fields.forEach(([key, value]) => {
-    const line = document.createElement('div');
-    line.textContent = `${key}: ${String(value)}`;
-    wrapper.appendChild(line);
+  if (!fields || typeof fields !== 'object') return;
+  const entries = Object.entries(fields);
+  if (!entries.length) return;
+
+  const details = document.createElement('details');
+  details.style.marginTop = '6px';
+  details.open = Boolean(openState[eventKey]);
+  details.addEventListener('toggle', () => {
+    openState[eventKey] = details.open;
   });
 
-  parent.appendChild(wrapper);
+  const summary = document.createElement('summary');
+  summary.textContent =
+    entries.length > maxKeys
+      ? `${title} (${maxKeys} of ${entries.length} keys)`
+      : title;
+  summary.style.cursor = 'pointer';
+  summary.style.color = '#9cdcfe';
+  summary.style.fontSize = '12px';
+  details.appendChild(summary);
+
+  const body = document.createElement('pre');
+  body.className = 'meta';
+  body.style.color = '#9cdcfe';
+  body.style.marginTop = '4px';
+  body.style.whiteSpace = 'pre-wrap';
+  body.textContent = buildPrettyPayload(entries, maxKeys, maxString);
+
+  details.appendChild(body);
+  parent.appendChild(details);
+}
+
+function renderPayloadDetails(request, parent, eventKey) {
+  if (!request || typeof request !== 'object') return;
+  if (!request.fields || typeof request.fields !== 'object') return;
+  if (!request.method || request.method.toUpperCase() === 'GET') return;
+
+  renderDetailsSection({
+    title: 'Payload details',
+    fields: request.fields,
+    eventKey,
+    openState: payloadOpenByEvent,
+    maxKeys: 6,
+    maxString: 160,
+    parent
+  });
+}
+
+function renderResponseDetails(response, parent, eventKey) {
+  if (!response || typeof response !== 'object') return;
+  if (!response.fields || typeof response.fields !== 'object') return;
+
+  renderDetailsSection({
+    title: 'Response details',
+    fields: response.fields,
+    eventKey,
+    openState: responseOpenByEvent,
+    maxKeys: 6,
+    maxString: 160,
+    parent
+  });
 }
 
 /* -------------------------
@@ -252,7 +371,18 @@ function render(groups, tabsMap, closedInfo) {
         div.appendChild(requestMeta);
       }
 
-      renderRequestFields(item.request, div);
+      const responseInfo = formatResponseInfo(item.response);
+      if (responseInfo) {
+        const responseMeta = document.createElement('div');
+        responseMeta.className = 'meta';
+        responseMeta.style.color = '#9cdcfe';
+        responseMeta.textContent = responseInfo;
+        div.appendChild(responseMeta);
+      }
+
+      const eventKey = getEventKey(item);
+      renderPayloadDetails(item.request, div, eventKey);
+      renderResponseDetails(item.response, div, eventKey);
 
       if (item.actions && item.actions.length) {
         const wrapper = document.createElement('div');

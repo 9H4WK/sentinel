@@ -53,7 +53,7 @@ const ACTIONS_PER_ERROR = 5;
 
   const MAX_FIELD_COUNT = 20;
   const MAX_VALUE_LENGTH = 200;
-  const MAX_BODY_PARSE_CHARS = 5000;
+  const MAX_BODY_PARSE_CHARS = 20000;
   const SENSITIVE_KEY_RE =
     /pass(word)?|token|secret|auth|authorization|cookie|session|jwt|api[-_]?key|csrf|xsrf|credit|card|cc|ssn|bearer/i;
 
@@ -473,12 +473,22 @@ const ACTIONS_PER_ERROR = 5;
           else if (json?.title) detail = json.title;
         } catch {}
 
+        const responseInfo = {
+          contentType: res.headers.get('content-type') || null,
+          size: text.length,
+          fields: extractFieldsFromBody(
+            text,
+            res.headers.get('content-type') || null
+          )
+        };
+
         send({
           type: 'network',
           status: res.status,
           url: res.url,
           detail: String(detail).slice(0, 500),
           request: requestInfo,
+          response: responseInfo,
           actions: __faultlineActions.slice(-ACTIONS_PER_ERROR),
           time: Date.now()
         });
@@ -540,6 +550,15 @@ const ACTIONS_PER_ERROR = 5;
             // non-JSON response, keep raw text
           }
 
+          const responseInfo = {
+            contentType: this.getResponseHeader('content-type') || null,
+            size: (this.responseText || '').length,
+            fields: extractFieldsFromBody(
+              this.responseText || '',
+              this.getResponseHeader('content-type') || null
+            )
+          };
+
           send({
             type: 'network',
             status: this.status,
@@ -547,6 +566,7 @@ const ACTIONS_PER_ERROR = 5;
             detail: detail,
             message: `${this.responseURL} (${this.status})`,
             request: this.__faultline?.request || null,
+            response: responseInfo,
             actions: __faultlineActions.slice(-ACTIONS_PER_ERROR),
             time: Date.now()
           });
