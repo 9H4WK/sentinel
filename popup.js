@@ -88,6 +88,7 @@ function trimObject(value, maxKeys, maxString) {
   return value;
 }
 
+// Best-effort JSON normalization for pretty display.
 function normalizeFieldValue(value, maxKeys, maxString) {
   if (typeof value === 'string') {
     let current = value.trim();

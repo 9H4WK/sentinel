@@ -12,7 +12,7 @@ export function registerNetworkListeners() {
       if (tabId === -1) return;
       if (statusCode < 400) return;
       if (!(await isHostAllowed(url))) return;
-      // Prefer page-level network capture when available
+      // Prefer page-level network capture when available.
       if (pageCaptureReadyByTab.has(tabId)) return;
 
         const existing = await getEventsForTab(tabId);

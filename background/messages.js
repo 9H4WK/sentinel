@@ -27,6 +27,7 @@ export function registerMessageListeners() {
     if (msg.type === 'page-capture-ready') {
       const tabId = sender.tab?.id;
       if (!tabId) return;
+      // Marks that injected.js is active so we can trust page-level payloads.
       pageCaptureReadyByTab.set(tabId, Date.now());
       return;
     }
@@ -139,6 +140,7 @@ export function registerMessageListeners() {
           e => !(e.tabId === tabId && e.kind === 'network' && e.url === msg.url)
         );
 
+        // Fallback to background-tracked actions if page payload is missing.
         const fallbackActions =
           lastActionByTab.get(tabId)?.slice(-ACTIONS_PER_ERROR) || [];
         const nextEvent = {

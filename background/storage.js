@@ -14,6 +14,7 @@ async function safeSend(tabId, message) {
   }
 }
 
+// Hard schema gate to prevent corrupted writes.
 function isValidEvent(event) {
   if (!event || typeof event !== 'object') return false;
   if (event.kind !== 'network' && event.kind !== 'console') return false;
@@ -36,6 +37,7 @@ function isValidEvent(event) {
   return true;
 }
 
+// Collapse retry spam within a short window.
 export function isDuplicateEvent(event, events) {
   if (
     !event ||

@@ -54,6 +54,7 @@ const ACTIONS_PER_ERROR = 5;
   const MAX_FIELD_COUNT = 20;
   const MAX_VALUE_LENGTH = 200;
   const MAX_BODY_PARSE_CHARS = 20000;
+  // Redact common secret-like keys/values before sending to extension.
   const SENSITIVE_KEY_RE =
     /pass(word)?|token|secret|auth|authorization|cookie|session|jwt|api[-_]?key|csrf|xsrf|credit|card|cc|ssn|bearer/i;
 
@@ -230,6 +231,7 @@ const ACTIONS_PER_ERROR = 5;
     return null;
   }
 
+  // Build a small, safe snapshot of request payload for debugging.
   function buildRequestInfo(method, headers, body) {
     const contentType =
       getHeaderValue(headers, 'content-type') || inferContentType(body);
@@ -242,7 +244,7 @@ const ACTIONS_PER_ERROR = 5;
   }
 
   /* --------------------------------
-   * User action tracking
+   * User action tracking (safe metadata only)
    * -------------------------------- */
   const __faultlineActions = [];
   const MAX_ACTIONS = MAX_ACTION_BUFFER;
@@ -445,6 +447,7 @@ const ACTIONS_PER_ERROR = 5;
   const originalFetch = window.fetch;
 
   window.fetch = async function (...args) {
+    // Capture request metadata without blocking the fetch.
     let requestInfo = null;
     try {
       const input = args[0];
@@ -473,6 +476,7 @@ const ACTIONS_PER_ERROR = 5;
           else if (json?.title) detail = json.title;
         } catch {}
 
+        // Lightweight response summary for popup diagnostics.
         const responseInfo = {
           contentType: res.headers.get('content-type') || null,
           size: text.length,
@@ -524,6 +528,7 @@ const ACTIONS_PER_ERROR = 5;
   };
 
   XMLHttpRequest.prototype.send = function () {
+    // Capture request metadata once, before the XHR completes.
     try {
       const meta = this.__faultline || {};
       const method = meta.method || 'GET';
@@ -550,6 +555,7 @@ const ACTIONS_PER_ERROR = 5;
             // non-JSON response, keep raw text
           }
 
+          // Lightweight response summary for popup diagnostics.
           const responseInfo = {
             contentType: this.getResponseHeader('content-type') || null,
             size: (this.responseText || '').length,

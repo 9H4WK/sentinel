@@ -77,6 +77,7 @@ function formatNetworkToastBody(detail, url) {
     s.remove();
     try {
       if (chrome?.runtime?.id) {
+        // Tell background that page-level capture is active for this tab.
         chrome.runtime.sendMessage({ type: 'page-capture-ready' });
       }
     } catch {}
