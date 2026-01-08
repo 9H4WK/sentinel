@@ -91,12 +91,19 @@ function trimObject(value, maxKeys, maxString) {
 function normalizeFieldValue(value, maxKeys, maxString) {
   if (typeof value === 'string') {
     let current = value.trim();
+    if (!current) return current;
+
     for (let i = 0; i < 2; i += 1) {
-      if (!(current.startsWith('{') || current.startsWith('['))) {
+      const attempt =
+        current.startsWith('\\\"') || current.includes('\\\"')
+          ? current.replace(/\\"/g, '"').replace(/\\n/g, '\n')
+          : current;
+      const candidate = attempt.trim();
+      if (!(candidate.startsWith('{') || candidate.startsWith('['))) {
         break;
       }
       try {
-        const parsed = JSON.parse(current);
+        const parsed = JSON.parse(candidate);
         if (typeof parsed === 'string') {
           current = parsed.trim();
           continue;
