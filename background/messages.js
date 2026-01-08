@@ -1,7 +1,7 @@
 import { MAX_EVENTS } from './config.js';
 import { lastActionByTab } from './state.js';
 import { getAllowList, isHostAllowed } from './allowlist.js';
-import { getClosedTabInfo, storeEvent } from './storage.js';
+import { getClosedTabInfo, isValidStoredEvent, storeEvent } from './storage.js';
 import { updateBadgeForActiveTab } from './badge.js';
 
 export function registerMessageListeners() {
@@ -127,7 +127,7 @@ export function registerMessageListeners() {
           e => !(e.tabId === tabId && e.kind === 'network' && e.url === msg.url)
         );
 
-        cleaned.push({
+        const nextEvent = {
           kind: 'network',
           status: msg.status,
           url: msg.url,
@@ -135,7 +135,14 @@ export function registerMessageListeners() {
           actions: msg.actions || [],
           tabId,
           time: msg.time || Date.now()
-        });
+        };
+
+        if (!isValidStoredEvent(nextEvent)) {
+          console.warn('[Faultline] Dropped invalid network event', nextEvent);
+          return;
+        }
+
+        cleaned.push(nextEvent);
 
         chrome.storage.local.set(
           { faultlineEvents: cleaned.slice(-MAX_EVENTS) },

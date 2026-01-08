@@ -10,7 +10,34 @@ async function safeSend(tabId, message) {
   }
 }
 
+function isValidEvent(event) {
+  if (!event || typeof event !== 'object') return false;
+  if (event.kind !== 'network' && event.kind !== 'console') return false;
+  if (!Number.isFinite(event.time)) return false;
+
+  if (event.kind === 'network') {
+    const statusOk =
+      Number.isFinite(event.status) || event.status === 'FAIL';
+    if (!statusOk) return false;
+    if (typeof event.url !== 'string' || event.url.length === 0) return false;
+  }
+
+  if (event.kind === 'console') {
+    if (typeof event.level !== 'string') return false;
+    if (typeof event.message !== 'string') return false;
+  }
+
+  if (event.actions != null && !Array.isArray(event.actions)) return false;
+
+  return true;
+}
+
 export function storeEvent(event, tabId) {
+  if (!isValidEvent(event)) {
+    console.warn('[Faultline] Dropped invalid event', event);
+    return;
+  }
+
   const withTab = {
     ...event,
     tabId
@@ -28,6 +55,10 @@ export function storeEvent(event, tabId) {
       }
     });
   });
+}
+
+export function isValidStoredEvent(event) {
+  return isValidEvent(event);
 }
 
 export function getEventsForTab(tabId) {
