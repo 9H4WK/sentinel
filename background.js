@@ -258,6 +258,8 @@ chrome.webRequest.onErrorOccurred.addListener(
 
       if (tabId === -1) return;
       if (!(await isHostAllowed(url))) return;
+      // Ignore generic HTTP FAIL errors from webRequest fallback
+      if (error === 'net::ERR_FAILED') return;
 
       const event = {
         kind: 'network',
