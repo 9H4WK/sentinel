@@ -2,9 +2,12 @@ import { ACTIONS_PER_ERROR, MAX_EVENTS } from './config.js';
 import { lastActionByTab, pageCaptureReadyByTab } from './state.js';
 import { getAllowList, isHostAllowed } from './allowlist.js';
 import {
+  clearStoredActions,
   getClosedTabInfo,
+  getRecentActions,
   isDuplicateEvent,
   isValidStoredEvent,
+  persistActions,
   storeEvent
 } from './storage.js';
 import { updateBadgeForActiveTab } from './badge.js';
@@ -21,6 +24,7 @@ export function registerMessageListeners() {
       existing.push(msg.action);
       if (existing.length > 10) existing.shift();
       lastActionByTab.set(tabId, existing);
+      persistActions(tabId, existing);
       return;
     }
 
@@ -69,6 +73,7 @@ export function registerMessageListeners() {
         );
 
         chrome.storage.local.set({ faultlineEvents: remaining }, () => {
+          clearStoredActions(String(msg.tabId));
           updateBadgeForActiveTab();
           sendResponse({ ok: true });
         });
@@ -89,6 +94,7 @@ export function registerMessageListeners() {
           );
 
           chrome.storage.local.set({ faultlineEvents: remaining }, () => {
+            clearStoredActions(String(tab.id));
             updateBadgeForActiveTab();
             sendResponse({ ok: true });
           });
@@ -132,7 +138,7 @@ export function registerMessageListeners() {
       const tabId = sender.tab?.id;
       if (!tabId) return;
 
-      chrome.storage.local.get({ faultlineEvents: [] }, (res) => {
+      chrome.storage.local.get({ faultlineEvents: [] }, async (res) => {
         const all = res.faultlineEvents;
 
         // Remove ANY existing network event for same tab + URL (webRequest fallback)
@@ -140,9 +146,11 @@ export function registerMessageListeners() {
           e => !(e.tabId === tabId && e.kind === 'network' && e.url === msg.url)
         );
 
-        // Fallback to background-tracked actions if page payload is missing.
-        const fallbackActions =
-          lastActionByTab.get(tabId)?.slice(-ACTIONS_PER_ERROR) || [];
+        // Fallback to stored actions if page payload is missing.
+        const fallbackActions = await getRecentActions(
+          tabId,
+          ACTIONS_PER_ERROR
+        );
         const nextEvent = {
           kind: 'network',
           status: msg.status,
@@ -185,7 +193,7 @@ export function registerMessageListeners() {
         );
       });
 
-      return;
-    }
-  });
+    return;
+  }
+});
 }

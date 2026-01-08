@@ -3,7 +3,7 @@ import {
   DEDUPE_WINDOW_MS,
   MAX_EVENTS
 } from './config.js';
-import { closedTabs } from './state.js';
+import { closedTabs, lastActionByTab } from './state.js';
 import { updateBadgeForActiveTab } from './badge.js';
 
 async function safeSend(tabId, message) {
@@ -144,4 +144,40 @@ export function getClosedTabInfo() {
     info[tabId] = remaining;
   }
   return info;
+}
+
+// Persist recent actions so fallback network events still show steps
+// after the service worker restarts.
+export function persistActions(tabId, actions) {
+  const key = String(tabId);
+  chrome.storage.local.get({ faultlineLastActions: {} }, res => {
+    const all = res.faultlineLastActions;
+    all[key] = Array.isArray(actions) ? actions : [];
+    chrome.storage.local.set({ faultlineLastActions: all });
+  });
+}
+
+export async function getRecentActions(tabId, limit) {
+  const inMemory = lastActionByTab.get(tabId);
+  if (Array.isArray(inMemory) && inMemory.length) {
+    return inMemory.slice(-limit);
+  }
+
+  const res = await chrome.storage.local.get({
+    faultlineLastActions: {}
+  });
+  const stored = res.faultlineLastActions?.[String(tabId)] || [];
+  if (!Array.isArray(stored)) return [];
+  return stored.slice(-limit);
+}
+
+export function clearStoredActions(tabId) {
+  const key = String(tabId);
+  chrome.storage.local.get({ faultlineLastActions: {} }, res => {
+    const all = res.faultlineLastActions;
+    if (all && Object.prototype.hasOwnProperty.call(all, key)) {
+      delete all[key];
+      chrome.storage.local.set({ faultlineLastActions: all });
+    }
+  });
 }

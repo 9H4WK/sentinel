@@ -85,6 +85,22 @@ function formatNetworkToastBody(detail, url) {
   (document.head || document.documentElement).appendChild(s);
 })();
 
+// Keep a small action buffer in the content script as a fallback.
+const ACTIONS_PER_ERROR = 5;
+const MAX_ACTION_BUFFER = 10;
+const recentActions = [];
+
+function recordAction(action) {
+  recentActions.push(action);
+  if (recentActions.length > MAX_ACTION_BUFFER) {
+    recentActions.shift();
+  }
+}
+
+function getRecentActions() {
+  return recentActions.slice(-ACTIONS_PER_ERROR);
+}
+
 /* ---------------------------
  * Receive messages FROM PAGE
  * --------------------------- */
@@ -114,6 +130,7 @@ window.addEventListener('message', (e) => {
   if (e.data?.source !== 'faultline-action') return;
 
   try {
+    recordAction(e.data.action);
     if (chrome?.runtime?.id) {
       chrome.runtime.sendMessage({
         type: 'user-action',
@@ -145,6 +162,10 @@ window.addEventListener('message', (e) => {
       if (chrome?.runtime?.id) {
         chrome.runtime.sendMessage({
           ...p,
+          actions:
+            Array.isArray(p.actions) && p.actions.length
+              ? p.actions
+              : getRecentActions(),
           type: 'network-page'
         });
       }

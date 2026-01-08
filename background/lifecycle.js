@@ -1,5 +1,5 @@
 import { updateBadgeForActiveTab } from './badge.js';
-import { cleanupClosedTabEvents } from './storage.js';
+import { cleanupClosedTabEvents, clearStoredActions } from './storage.js';
 import { closedTabs, pageCaptureReadyByTab } from './state.js';
 
 export function registerLifecycleListeners() {
@@ -23,6 +23,7 @@ export function registerLifecycleListeners() {
   chrome.tabs.onRemoved.addListener((tabId) => {
     closedTabs.set(tabId, Date.now());
     pageCaptureReadyByTab.delete(tabId);
+    clearStoredActions(tabId);
     cleanupClosedTabEvents();
   });
 }

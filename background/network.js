@@ -1,7 +1,7 @@
 import { ACTIONS_PER_ERROR } from './config.js';
-import { lastActionByTab, pageCaptureReadyByTab } from './state.js';
+import { pageCaptureReadyByTab } from './state.js';
 import { isHostAllowed } from './allowlist.js';
-import { getEventsForTab, storeEvent } from './storage.js';
+import { getEventsForTab, getRecentActions, storeEvent } from './storage.js';
 import { updateBadgeForActiveTab } from './badge.js';
 
 export function registerNetworkListeners() {
@@ -24,8 +24,10 @@ export function registerNetworkListeners() {
           return;
         }
 
-        const actions =
-          lastActionByTab.get(tabId)?.slice(-ACTIONS_PER_ERROR) || [];
+      const actions = await getRecentActions(
+        tabId,
+        ACTIONS_PER_ERROR
+      );
 
         const event = {
           kind: 'network',
@@ -47,8 +49,10 @@ export function registerNetworkListeners() {
     (details) => {
       (async () => {
         const { error, url, method, tabId } = details;
-        const actions =
-          lastActionByTab.get(tabId)?.slice(-ACTIONS_PER_ERROR) || [];
+        const actions = await getRecentActions(
+          tabId,
+          ACTIONS_PER_ERROR
+        );
 
         if (tabId === -1) return;
         if (!(await isHostAllowed(url))) return;
