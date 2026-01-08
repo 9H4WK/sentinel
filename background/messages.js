@@ -146,6 +146,7 @@ export function registerMessageListeners() {
           status: msg.status,
           url: msg.url,
           detail: msg.detail,
+          request: msg.request || null,
           actions:
             Array.isArray(msg.actions) && msg.actions.length
               ? msg.actions

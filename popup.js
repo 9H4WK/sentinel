@@ -60,6 +60,44 @@ function formatDelta(ms) {
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
+function formatRequestInfo(request) {
+  if (!request || typeof request !== 'object') return null;
+
+  const parts = [];
+  if (request.method) parts.push(request.method);
+  if (request.contentType) parts.push(request.contentType);
+  if (Number.isFinite(request.size)) {
+    parts.push(`${request.size} bytes`);
+  }
+
+  return parts.join(' • ');
+}
+
+function renderRequestFields(request, parent) {
+  if (!request?.fields || typeof request.fields !== 'object') return;
+
+  const fields = Object.entries(request.fields);
+  if (!fields.length) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'meta';
+  wrapper.style.color = '#9cdcfe';
+  wrapper.style.marginTop = '6px';
+
+  const title = document.createElement('div');
+  title.textContent = 'Request fields:';
+  title.style.marginBottom = '2px';
+  wrapper.appendChild(title);
+
+  fields.forEach(([key, value]) => {
+    const line = document.createElement('div');
+    line.textContent = `${key}: ${String(value)}`;
+    wrapper.appendChild(line);
+  });
+
+  parent.appendChild(wrapper);
+}
+
 /* -------------------------
  * Render
  * ------------------------- */
@@ -204,6 +242,17 @@ function render(groups, tabsMap, closedInfo) {
       div.appendChild(type);
       div.appendChild(msg);
       div.appendChild(meta);
+
+      const requestInfo = formatRequestInfo(item.request);
+      if (requestInfo) {
+        const requestMeta = document.createElement('div');
+        requestMeta.className = 'meta';
+        requestMeta.style.color = '#9cdcfe';
+        requestMeta.textContent = requestInfo;
+        div.appendChild(requestMeta);
+      }
+
+      renderRequestFields(item.request, div);
 
       if (item.actions && item.actions.length) {
         const wrapper = document.createElement('div');
