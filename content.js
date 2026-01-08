@@ -126,8 +126,8 @@ window.addEventListener('message', (e) => {
     try {
       if (chrome?.runtime?.id) {
         chrome.runtime.sendMessage({
-          type: 'network-page',
-          ...p
+          ...p,
+          type: 'network-page'
         });
       }
     } catch {}

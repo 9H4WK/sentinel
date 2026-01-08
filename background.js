@@ -146,8 +146,8 @@ function getClosedTabInfo() {
 
 function getEventsForTab(tabId) {
   return new Promise((resolve) => {
-    chrome.storage.local.get({ faultlineEvents: {} }, (res) => {
-      resolve(res.faultlineEvents[tabId] || []);
+    chrome.storage.local.get({ faultlineEvents: [] }, (res) => {
+      resolve(res.faultlineEvents.filter(e => e.tabId === tabId));
     });
   });
 }
@@ -217,12 +217,16 @@ chrome.webRequest.onCompleted.addListener(
       if (!(await isHostAllowed(url))) return;
       
       const existing = await new Promise((resolve) => {
-        chrome.storage.local.get({ faultlineEvents: {} }, (res) => {
-          resolve(res.faultlineEvents[tabId] || []);
+    chrome.storage.local.get({ faultlineEvents: [] }, (res) => {
+          resolve(res.faultlineEvents.filter(e => e.tabId === tabId));
         });
       });
 
-      if (existing.some(e => e.kind === 'network' && e.url === url && e.detail)) {
+      if (
+        existing.some(
+          e => e.kind === 'network' && e.url === url && e.detail
+        )
+      ) {
         return;
       }
 
@@ -398,33 +402,35 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     const tabId = sender.tab?.id;
     if (!tabId) return;
 
-    chrome.storage.local.get({ faultlineEvents: {} }, (res) => {
+        chrome.storage.local.get({ faultlineEvents: [] }, (res) => {
       const all = res.faultlineEvents;
-      const list = all[tabId] || [];
 
-      // 🔴 Remove ANY existing network event for same URL
-      const cleaned = list.filter(
-        e => !(e.kind === 'network' && e.url === msg.url)
+      // Remove ANY existing network event for same tab + URL (webRequest fallback)
+      const cleaned = all.filter(
+        e => !(e.tabId === tabId && e.kind === 'network' && e.url === msg.url)
       );
 
       cleaned.push({
         kind: 'network',
         status: msg.status,
         url: msg.url,
-        detail: msg.detail,        // ✅ GUARANTEED
+        detail: msg.detail, // page-level detail
         actions: msg.actions || [],
+        tabId,
         time: msg.time || Date.now()
       });
 
-      all[tabId] = cleaned;
-
-      chrome.storage.local.set({ faultlineEvents: all }, () => {
-        updateBadgeForActiveTab();
-      });
+      chrome.storage.local.set(
+        { faultlineEvents: cleaned.slice(-200) },
+        () => {
+          updateBadgeForActiveTab();
+        }
+      );
     });
 
     return;
   }
 });
+
 
 
