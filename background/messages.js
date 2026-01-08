@@ -1,7 +1,12 @@
-import { MAX_EVENTS } from './config.js';
+import { ACTIONS_PER_ERROR, MAX_EVENTS } from './config.js';
 import { lastActionByTab } from './state.js';
 import { getAllowList, isHostAllowed } from './allowlist.js';
-import { getClosedTabInfo, isValidStoredEvent, storeEvent } from './storage.js';
+import {
+  getClosedTabInfo,
+  isDuplicateEvent,
+  isValidStoredEvent,
+  storeEvent
+} from './storage.js';
 import { updateBadgeForActiveTab } from './badge.js';
 
 export function registerMessageListeners() {
@@ -127,18 +132,35 @@ export function registerMessageListeners() {
           e => !(e.tabId === tabId && e.kind === 'network' && e.url === msg.url)
         );
 
+        const fallbackActions =
+          lastActionByTab.get(tabId)?.slice(-ACTIONS_PER_ERROR) || [];
         const nextEvent = {
           kind: 'network',
           status: msg.status,
           url: msg.url,
           detail: msg.detail,
-          actions: msg.actions || [],
+          actions:
+            Array.isArray(msg.actions) && msg.actions.length
+              ? msg.actions
+              : fallbackActions,
           tabId,
           time: msg.time || Date.now()
         };
 
         if (!isValidStoredEvent(nextEvent)) {
           console.warn('[Faultline] Dropped invalid network event', nextEvent);
+          return;
+        }
+
+        if (isDuplicateEvent(nextEvent, cleaned)) {
+          if (cleaned.length !== all.length) {
+            chrome.storage.local.set(
+              { faultlineEvents: cleaned.slice(-MAX_EVENTS) },
+              () => {
+                updateBadgeForActiveTab();
+              }
+            );
+          }
           return;
         }
 

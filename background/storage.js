@@ -1,4 +1,8 @@
-import { CLOSED_TAB_RETENTION_MS, MAX_EVENTS } from './config.js';
+import {
+  CLOSED_TAB_RETENTION_MS,
+  DEDUPE_WINDOW_MS,
+  MAX_EVENTS
+} from './config.js';
 import { closedTabs } from './state.js';
 import { updateBadgeForActiveTab } from './badge.js';
 
@@ -32,6 +36,33 @@ function isValidEvent(event) {
   return true;
 }
 
+export function isDuplicateEvent(event, events) {
+  if (
+    !event ||
+    !event.url ||
+    event.status == null ||
+    event.kind !== 'network'
+  ) {
+    return false;
+  }
+
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const existing = events[i];
+    if (
+      existing.kind === 'network' &&
+      existing.tabId === event.tabId &&
+      existing.url === event.url &&
+      existing.status === event.status &&
+      Number.isFinite(existing.time)
+    ) {
+      const delta = Math.abs(event.time - existing.time);
+      return delta <= DEDUPE_WINDOW_MS;
+    }
+  }
+
+  return false;
+}
+
 export function storeEvent(event, tabId) {
   if (!isValidEvent(event)) {
     console.warn('[Faultline] Dropped invalid event', event);
@@ -44,6 +75,10 @@ export function storeEvent(event, tabId) {
   };
 
   chrome.storage.local.get({ faultlineEvents: [] }, res => {
+    if (isDuplicateEvent(withTab, res.faultlineEvents)) {
+      return;
+    }
+
     const updated = res.faultlineEvents
       .concat(withTab)
       .slice(-MAX_EVENTS);
