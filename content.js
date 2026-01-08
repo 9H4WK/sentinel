@@ -73,7 +73,14 @@ function formatNetworkToastBody(detail, url) {
 (function injectImmediately() {
   const s = document.createElement('script');
   s.src = chrome.runtime.getURL('injected.js');
-  s.onload = () => s.remove();
+  s.onload = () => {
+    s.remove();
+    try {
+      if (chrome?.runtime?.id) {
+        chrome.runtime.sendMessage({ type: 'page-capture-ready' });
+      }
+    } catch {}
+  };
   (document.head || document.documentElement).appendChild(s);
 })();
 

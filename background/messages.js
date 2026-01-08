@@ -1,5 +1,5 @@
 import { ACTIONS_PER_ERROR, MAX_EVENTS } from './config.js';
-import { lastActionByTab } from './state.js';
+import { lastActionByTab, pageCaptureReadyByTab } from './state.js';
 import { getAllowList, isHostAllowed } from './allowlist.js';
 import {
   getClosedTabInfo,
@@ -21,6 +21,13 @@ export function registerMessageListeners() {
       existing.push(msg.action);
       if (existing.length > 10) existing.shift();
       lastActionByTab.set(tabId, existing);
+      return;
+    }
+
+    if (msg.type === 'page-capture-ready') {
+      const tabId = sender.tab?.id;
+      if (!tabId) return;
+      pageCaptureReadyByTab.set(tabId, Date.now());
       return;
     }
 

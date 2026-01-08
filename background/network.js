@@ -1,5 +1,5 @@
 import { ACTIONS_PER_ERROR } from './config.js';
-import { lastActionByTab } from './state.js';
+import { lastActionByTab, pageCaptureReadyByTab } from './state.js';
 import { isHostAllowed } from './allowlist.js';
 import { getEventsForTab, storeEvent } from './storage.js';
 import { updateBadgeForActiveTab } from './badge.js';
@@ -8,10 +8,12 @@ export function registerNetworkListeners() {
   chrome.webRequest.onCompleted.addListener(
     (details) => {
       (async () => {
-        const { statusCode, url, method, tabId } = details;
-        if (tabId === -1) return;
-        if (statusCode < 400) return;
-        if (!(await isHostAllowed(url))) return;
+      const { statusCode, url, method, tabId } = details;
+      if (tabId === -1) return;
+      if (statusCode < 400) return;
+      if (!(await isHostAllowed(url))) return;
+      // Prefer page-level network capture when available
+      if (pageCaptureReadyByTab.has(tabId)) return;
 
         const existing = await getEventsForTab(tabId);
         if (

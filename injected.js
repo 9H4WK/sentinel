@@ -51,6 +51,196 @@ const ACTIONS_PER_ERROR = 5;
     }
   }
 
+  const MAX_FIELD_COUNT = 20;
+  const MAX_VALUE_LENGTH = 200;
+  const MAX_BODY_PARSE_CHARS = 5000;
+  const SENSITIVE_KEY_RE =
+    /pass(word)?|token|secret|auth|authorization|cookie|session|jwt|api[-_]?key|csrf|xsrf|credit|card|cc|ssn|bearer/i;
+
+  function truncateString(value, max) {
+    if (typeof value !== 'string') return value;
+    if (value.length <= max) return value;
+    return value.slice(0, max) + '...';
+  }
+
+  function getHeaderValue(headers, name) {
+    if (!headers) return null;
+    const target = name.toLowerCase();
+    try {
+      if (headers instanceof Headers) {
+        return headers.get(name);
+      }
+    } catch {}
+
+    if (Array.isArray(headers)) {
+      for (const pair of headers) {
+        if (!pair || pair.length < 2) continue;
+        const key = String(pair[0]).toLowerCase();
+        if (key === target) return String(pair[1]);
+      }
+    }
+
+    if (typeof headers === 'object') {
+      for (const key of Object.keys(headers)) {
+        if (key.toLowerCase() === target) {
+          return String(headers[key]);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function inferContentType(body) {
+    if (!body) return null;
+    if (body instanceof URLSearchParams) {
+      return 'application/x-www-form-urlencoded';
+    }
+    if (body instanceof FormData) {
+      return 'multipart/form-data';
+    }
+    if (body instanceof Blob) {
+      return body.type || null;
+    }
+    if (typeof body === 'object' && !(body instanceof Blob)) {
+      return 'application/json';
+    }
+    if (typeof body === 'string') {
+      return 'text/plain';
+    }
+    return null;
+  }
+
+  function estimateBodySize(body) {
+    try {
+      if (body == null) return 0;
+      if (typeof body?.getReader === 'function') return null;
+      if (typeof body === 'string') return body.length;
+      if (body instanceof URLSearchParams) return body.toString().length;
+      if (body instanceof Blob) return body.size;
+      if (body instanceof ArrayBuffer) return body.byteLength;
+      if (ArrayBuffer.isView(body)) return body.byteLength;
+      if (body instanceof FormData) {
+        let total = 0;
+        for (const [, v] of body.entries()) {
+          if (typeof v === 'string') total += v.length;
+          else if (v instanceof Blob) total += v.size;
+        }
+        return total;
+      }
+      if (typeof body === 'object') {
+        const json = JSON.stringify(body);
+        return json.length;
+      }
+    } catch {}
+    return null;
+  }
+
+  function looksSensitiveValue(value) {
+    if (typeof value !== 'string') return false;
+    if (/^Bearer\s+/i.test(value)) return true;
+    if (/^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/.test(value)) {
+      return true;
+    }
+    if (/^[A-Za-z0-9-_]{20,}$/.test(value)) return true;
+    if (/^[A-Za-z0-9+/=]{32,}$/.test(value)) return true;
+    return false;
+  }
+
+  function sanitizeEntries(entries) {
+    const result = {};
+    let count = 0;
+    for (const [rawKey, rawValue] of entries) {
+      if (count >= MAX_FIELD_COUNT) break;
+      const key = truncateString(String(rawKey), 80);
+
+      let value;
+      if (SENSITIVE_KEY_RE.test(key)) {
+        value = '[redacted]';
+      } else if (rawValue == null) {
+        value = String(rawValue);
+      } else if (typeof rawValue === 'string') {
+        value = looksSensitiveValue(rawValue)
+          ? '[redacted]'
+          : truncateString(rawValue, MAX_VALUE_LENGTH);
+      } else if (
+        typeof rawValue === 'number' ||
+        typeof rawValue === 'boolean'
+      ) {
+        value = rawValue;
+      } else if (rawValue instanceof File || rawValue instanceof Blob) {
+        const typeLabel = rawValue.type ? rawValue.type : 'file';
+        value = `[${typeLabel} ${rawValue.size || 0}b]`;
+      } else if (Array.isArray(rawValue)) {
+        value = `[array:${rawValue.length}]`;
+      } else if (typeof rawValue === 'object') {
+        value = truncateString(safeStringify(rawValue), MAX_VALUE_LENGTH);
+      } else {
+        value = truncateString(String(rawValue), MAX_VALUE_LENGTH);
+      }
+
+      result[key] = value;
+      count += 1;
+    }
+    return result;
+  }
+
+  function extractFieldsFromBody(body, contentType) {
+    try {
+      if (body == null) return null;
+      if (typeof body?.getReader === 'function') return null;
+
+      if (body instanceof URLSearchParams) {
+        return sanitizeEntries(body.entries());
+      }
+
+      if (body instanceof FormData) {
+        return sanitizeEntries(body.entries());
+      }
+
+      if (typeof body === 'string') {
+        const text = body;
+        if (text.length > MAX_BODY_PARSE_CHARS) {
+          return null;
+        }
+        const isJson =
+          contentType?.includes('application/json') ||
+          text.trim().startsWith('{') ||
+          text.trim().startsWith('[');
+        if (isJson) {
+          const parsed = JSON.parse(text);
+          if (Array.isArray(parsed)) {
+            return { _arrayLength: parsed.length };
+          }
+          if (parsed && typeof parsed === 'object') {
+            return sanitizeEntries(Object.entries(parsed));
+          }
+        }
+        return null;
+      }
+
+      if (typeof body === 'object') {
+        if (Array.isArray(body)) {
+          return { _arrayLength: body.length };
+        }
+        return sanitizeEntries(Object.entries(body));
+      }
+    } catch {}
+
+    return null;
+  }
+
+  function buildRequestInfo(method, headers, body) {
+    const contentType =
+      getHeaderValue(headers, 'content-type') || inferContentType(body);
+    return {
+      method: method || 'GET',
+      contentType: contentType || null,
+      size: estimateBodySize(body),
+      fields: extractFieldsFromBody(body, contentType)
+    };
+  }
+
   /* --------------------------------
    * User action tracking
    * -------------------------------- */
@@ -255,6 +445,20 @@ const ACTIONS_PER_ERROR = 5;
   const originalFetch = window.fetch;
 
   window.fetch = async function (...args) {
+    let requestInfo = null;
+    try {
+      const input = args[0];
+      const init = args[1] || {};
+      const method = (init && init.method) ||
+        (input && input.method) ||
+        'GET';
+      const headers = (init && init.headers) ||
+        (input && input.headers) ||
+        null;
+      const body = (init && init.body) || null;
+      requestInfo = buildRequestInfo(method, headers, body);
+    } catch {}
+
     const res = await originalFetch.apply(this, args);
 
     try {
@@ -274,6 +478,7 @@ const ACTIONS_PER_ERROR = 5;
           status: res.status,
           url: res.url,
           detail: String(detail).slice(0, 500),
+          request: requestInfo,
           actions: __faultlineActions.slice(-ACTIONS_PER_ERROR),
           time: Date.now()
         });
@@ -289,13 +494,35 @@ const ACTIONS_PER_ERROR = 5;
 (function interceptXHR() {
   const open = XMLHttpRequest.prototype.open;
   const sendXHR = XMLHttpRequest.prototype.send;
+  const setRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
 
   XMLHttpRequest.prototype.open = function (method, url) {
     this.__faultline = { method, url };
     return open.apply(this, arguments);
   };
 
+  XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+    try {
+      if (!this.__faultline) this.__faultline = {};
+      const key = String(name || '').toLowerCase();
+      const headers = this.__faultline.headers || {};
+      headers[key] = String(value);
+      this.__faultline.headers = headers;
+    } catch {}
+
+    return setRequestHeader.apply(this, arguments);
+  };
+
   XMLHttpRequest.prototype.send = function () {
+    try {
+      const meta = this.__faultline || {};
+      const method = meta.method || 'GET';
+      const headers = meta.headers || null;
+      const body = arguments[0];
+      meta.request = buildRequestInfo(method, headers, body);
+      this.__faultline = meta;
+    } catch {}
+
     this.addEventListener('load', () => {
       try {
         if (this.status >= 400) {
@@ -319,6 +546,7 @@ const ACTIONS_PER_ERROR = 5;
             url: this.responseURL,
             detail: detail,
             message: `${this.responseURL} (${this.status})`,
+            request: this.__faultline?.request || null,
             actions: __faultlineActions.slice(-ACTIONS_PER_ERROR),
             time: Date.now()
           });
