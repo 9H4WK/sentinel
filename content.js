@@ -57,6 +57,16 @@ function showToast(title, body) {
   setTimeout(() => toast.remove(), 10000);
 }
 
+function formatNetworkToastBody(detail, url) {
+  try {
+    const path = new URL(url).pathname || '';
+    const label = path ? path : url;
+    return detail ? `${label} — ${detail}` : label;
+  } catch {
+    return detail ? `${url} — ${detail}` : url;
+  }
+}
+
 /* ---------------------------
  * Inject page script ASAP
  * --------------------------- */
@@ -120,7 +130,7 @@ window.addEventListener('message', (e) => {
   if (p.type === 'network') {
     showToast(
       `HTTP ${p.status}`,
-      p.detail || p.url
+      formatNetworkToastBody(p.detail, p.url)
     );
 
     try {
