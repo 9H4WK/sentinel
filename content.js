@@ -67,6 +67,17 @@ function formatNetworkToastBody(detail, url) {
   }
 }
 
+let faultlineEnabled = true;
+chrome.storage.local.get({ faultlineEnabled: true }, res => {
+  faultlineEnabled = res.faultlineEnabled !== false;
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (changes.faultlineEnabled) {
+    faultlineEnabled = changes.faultlineEnabled.newValue !== false;
+  }
+});
+
 /* ---------------------------
  * Inject page script ASAP
  * --------------------------- */
@@ -107,6 +118,7 @@ function getRecentActions() {
 window.addEventListener('message', (e) => {
   if (e.source !== window) return;
   if (!e.data || e.data.source !== 'faultline') return;
+  if (!faultlineEnabled) return;
 
   const p = e.data.payload;
 
@@ -128,6 +140,7 @@ window.addEventListener('message', (e) => {
 window.addEventListener('message', (e) => {
   if (e.source !== window) return;
   if (e.data?.source !== 'faultline-action') return;
+  if (!faultlineEnabled) return;
 
   try {
     recordAction(e.data.action);
@@ -148,6 +161,7 @@ window.addEventListener('message', (e) => {
 window.addEventListener('message', (e) => {
   if (e.source !== window) return;
   if (e.data?.source !== 'faultline') return;
+  if (!faultlineEnabled) return;
 
   const p = e.data.payload;
 

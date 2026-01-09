@@ -1,5 +1,5 @@
 import { ACTIONS_PER_ERROR } from './config.js';
-import { pageCaptureReadyByTab } from './state.js';
+import { faultlineEnabled, pageCaptureReadyByTab } from './state.js';
 import { isHostAllowed } from './allowlist.js';
 import { getEventsForTab, getRecentActions, storeEvent } from './storage.js';
 import { updateBadgeForActiveTab } from './badge.js';
@@ -7,7 +7,8 @@ import { updateBadgeForActiveTab } from './badge.js';
 export function registerNetworkListeners() {
   chrome.webRequest.onCompleted.addListener(
     (details) => {
-      (async () => {
+    (async () => {
+      if (!faultlineEnabled) return;
       const { statusCode, url, method, tabId } = details;
       if (tabId === -1) return;
       if (statusCode < 400) return;
@@ -47,8 +48,9 @@ export function registerNetworkListeners() {
 
   chrome.webRequest.onErrorOccurred.addListener(
     (details) => {
-      (async () => {
-        const { error, url, method, tabId } = details;
+    (async () => {
+      if (!faultlineEnabled) return;
+      const { error, url, method, tabId } = details;
         const actions = await getRecentActions(
           tabId,
           ACTIONS_PER_ERROR

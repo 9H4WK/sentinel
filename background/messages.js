@@ -1,5 +1,9 @@
 import { ACTIONS_PER_ERROR, MAX_EVENTS } from './config.js';
-import { lastActionByTab, pageCaptureReadyByTab } from './state.js';
+import {
+  faultlineEnabled,
+  lastActionByTab,
+  pageCaptureReadyByTab
+} from './state.js';
 import { getAllowList, isHostAllowed } from './allowlist.js';
 import {
   clearStoredActions,
@@ -15,6 +19,7 @@ import { updateBadgeForActiveTab } from './badge.js';
 export function registerMessageListeners() {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || !msg.type) return;
+    if (!faultlineEnabled && msg.type !== 'page-capture-ready') return;
 
     if (msg.type === 'user-action') {
       const tabId = sender.tab?.id;

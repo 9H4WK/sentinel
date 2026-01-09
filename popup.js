@@ -1,5 +1,6 @@
 const listEl = document.getElementById('list');
 const clearBtn = document.getElementById('clear');
+const toggleEnabled = document.getElementById('toggle-enabled');
 
 let activeTabId = null;
 let didAutoScroll = false;
@@ -464,13 +465,20 @@ function render(groups, tabsMap, closedInfo) {
  * Load & Live updates
  * ------------------------- */
 async function loadAndRender() {
-  const [tabsMap, data, closedInfo] = await Promise.all([
+  const [tabsMap, data, closedInfo, settings] = await Promise.all([
     getTabsMap(),
     new Promise(res =>
       chrome.storage.local.get({ faultlineEvents: [] }, res)
     ),
-    getClosedTabsInfo()
+    getClosedTabsInfo(),
+    new Promise(res =>
+      chrome.storage.local.get({ faultlineEnabled: true }, res)
+    )
   ]);
+
+  if (toggleEnabled) {
+    toggleEnabled.checked = settings.faultlineEnabled !== false;
+  }
 
   const groups = groupByTab(data.faultlineEvents || []);
   render(groups, tabsMap, closedInfo || {});
@@ -492,6 +500,14 @@ if (clearBtn) {
     chrome.runtime.sendMessage({ type: 'clear-events' });
     loadAndRender();
   };
+}
+
+if (toggleEnabled) {
+  toggleEnabled.addEventListener('change', () => {
+    chrome.storage.local.set({
+      faultlineEnabled: toggleEnabled.checked
+    });
+  });
 }
 
 // Live updates from background

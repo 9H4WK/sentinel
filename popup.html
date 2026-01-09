@@ -65,7 +65,13 @@
 
   <div class="controls">
     <span>Error History</span>
-    <button id="clear">Clear</button>
+    <div style="display:flex;gap:8px;align-items:center">
+      <label style="display:flex;gap:6px;align-items:center;font-size:11px;color:#bbb">
+        <input id="toggle-enabled" type="checkbox" />
+        Enabled
+      </label>
+      <button id="clear">Clear</button>
+    </div>
   </div>
 
   <div id="list" class="list"></div>
