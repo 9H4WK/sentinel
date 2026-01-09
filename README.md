@@ -106,6 +106,28 @@ Background modules:
 - `background/badge.js`      Badge updates
 - `background/lifecycle.js`  Tab lifecycle wiring
 
+## Flow (Text)
+
+```
+Page (injected.js)
+  |  console/fetch/xhr
+  v
+window.postMessage
+  |
+  v
+Content Script (content.js)
+  |  toast + forward
+  v
+Background (service worker)
+  |  validate + dedupe + persist
+  v
+chrome.storage.local
+  |
+  v
+Popup (popup.js)
+  |  render + toggle
+```
+
 ## Security & Privacy
 
 - Sensitive keys and values are redacted (tokens, auth, cookies, etc).
@@ -130,4 +152,3 @@ If you see missing details:
 - MV3 service worker can unload; action tracking is persisted to storage to
   avoid losing repro steps between restarts.
 - Deduplication collapses identical network events within a short window.
-

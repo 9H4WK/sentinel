@@ -63,6 +63,18 @@ decisions for the Sentinel SF (Faultline) extension.
    - persists to storage
 6. `popup.js` reads storage and renders.
 
+### High-Level Flow (Text)
+
+```
+injected.js (page)
+  -> window.postMessage
+content.js (isolated world)
+  -> chrome.runtime.sendMessage
+background/*
+  -> chrome.storage.local
+popup.js
+```
+
 ### Page-Level Console Error
 
 1. `injected.js` wraps `console.error` / `console.warn`.
@@ -131,4 +143,3 @@ Areas for future work:
 - export errors to a file or clipboard
 - add client-side filters in the popup
 - add rate-limits by host or endpoint
-
