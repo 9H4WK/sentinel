@@ -1,4 +1,4 @@
-const listEl = document.getElementById('list');
+﻿const listEl = document.getElementById('list');
 const clearBtn = document.getElementById('clear');
 const toggleEnabled = document.getElementById('toggle-enabled');
 
@@ -137,7 +137,7 @@ function formatRequestInfo(request) {
     parts.push(`${request.size} bytes`);
   }
 
-  return parts.join(' • ');
+  return parts.join(' â¢ ');
 }
 
 function formatResponseInfo(response) {
@@ -149,7 +149,7 @@ function formatResponseInfo(response) {
     parts.push(`${response.size} bytes`);
   }
 
-  return parts.join(' ƒ?› ');
+  return parts.join(' Æ?âº ');
 }
 
 function renderDetailsSection(options) {
@@ -306,7 +306,7 @@ function render(groups, tabsMap, closedInfo) {
     left.style.alignItems = 'center';
 
     const caret = document.createElement('span');
-    caret.textContent = isCollapsed ? '▶' : '▼';
+    caret.textContent = isCollapsed ? 'â¶' : 'â¼';
     caret.style.marginRight = '6px';
     left.appendChild(caret);
 
@@ -327,7 +327,7 @@ function render(groups, tabsMap, closedInfo) {
     left.appendChild(document.createTextNode(title));
 
     const clearBtnTab = document.createElement('button');
-    clearBtnTab.textContent = '✕';
+    clearBtnTab.textContent = 'â';
     clearBtnTab.title = 'Clear this tab';
     clearBtnTab.style.background = 'transparent';
     clearBtnTab.style.border = 'none';
@@ -369,7 +369,7 @@ function render(groups, tabsMap, closedInfo) {
     );
     /* ---------- Events ---------- */
     groups[tabId].slice().reverse().forEach(item => {
-      // 🚫 Skip console errors if network errors exist
+      // ð« Skip console errors if network errors exist
       if (hasNetworkErrors && item.kind === 'console') {
         return;
       }
@@ -386,10 +386,14 @@ function render(groups, tabsMap, closedInfo) {
           : `HTTP ${item.status}`;
 
       const msg = document.createElement('div');
-      msg.textContent =
-        item.detail
-          ? `${item.url} (${item.status}) — ${item.detail}`
-          : item.url;
+      if (item.kind === 'console') {
+        msg.textContent = item.message || '(no message)';
+      } else {
+        msg.textContent =
+          item.detail
+            ? `${item.url} (${item.status}) — ${item.detail}`
+            : item.url;
+      }
 
       const meta = document.createElement('div');
       meta.className = 'meta';
@@ -516,3 +520,4 @@ chrome.runtime.onMessage.addListener(msg => {
     loadAndRender();
   }
 });
+
