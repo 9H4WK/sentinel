@@ -225,6 +225,34 @@ function renderResponseDetails(response, parent, eventKey) {
   });
 }
 
+function renderSideBySideDetails(request, response, parent, eventKey) {
+  const wrapper = document.createElement('div');
+  wrapper.style.display = 'flex';
+  wrapper.style.gap = '8px';
+  wrapper.style.flexWrap = 'wrap';
+  wrapper.style.marginTop = '6px';
+
+  const left = document.createElement('div');
+  left.style.flex = '1 1 220px';
+
+  const right = document.createElement('div');
+  right.style.flex = '1 1 220px';
+
+  renderPayloadDetails(request, left, eventKey);
+  renderResponseDetails(response, right, eventKey);
+
+  if (left.childNodes.length) {
+    wrapper.appendChild(left);
+  }
+  if (right.childNodes.length) {
+    wrapper.appendChild(right);
+  }
+
+  if (wrapper.childNodes.length) {
+    parent.appendChild(wrapper);
+  }
+}
+
 /* -------------------------
  * Render
  * ------------------------- */
@@ -389,8 +417,12 @@ function render(groups, tabsMap, closedInfo) {
       }
 
       const eventKey = getEventKey(item);
-      renderPayloadDetails(item.request, div, eventKey);
-      renderResponseDetails(item.response, div, eventKey);
+      renderSideBySideDetails(
+        item.request,
+        item.response,
+        div,
+        eventKey
+      );
 
       if (item.actions && item.actions.length) {
         const wrapper = document.createElement('div');
