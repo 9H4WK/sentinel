@@ -128,6 +128,10 @@ Popup (popup.js)
   |  render + toggle
 ```
 
+## Flow (Diagram)
+
+![Sentinel SF Flow](flow/sf-flow.png)
+
 ## Security & Privacy
 
 - Sensitive keys and values are redacted (tokens, auth, cookies, etc).

@@ -75,6 +75,10 @@ background/*
 popup.js
 ```
 
+### High-Level Flow (Diagram)
+
+![Sentinel SF Flow](flow/sf-flow.png)
+
 ### Page-Level Console Error
 
 1. `injected.js` wraps `console.error` / `console.warn`.
